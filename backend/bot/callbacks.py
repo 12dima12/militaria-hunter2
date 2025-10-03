@@ -3,7 +3,6 @@ from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardBut
 import logging
 from datetime import datetime
 
-from database import DatabaseManager
 from services.keyword_service import KeywordService
 
 logger = logging.getLogger(__name__)
@@ -11,9 +10,15 @@ logger = logging.getLogger(__name__)
 # Create router for callbacks
 callback_router = Router()
 
-# Initialize services
-db_manager = DatabaseManager()
-keyword_service = KeywordService(db_manager)
+# Services will be injected from main application
+db_manager = None
+keyword_service = None
+
+def set_services(db_mgr, keyword_svc):
+    """Set services from main application"""
+    global db_manager, keyword_service
+    db_manager = db_mgr
+    keyword_service = keyword_svc
 
 
 @callback_router.callback_query(lambda c: c.data.startswith("confirm_delete_"))
