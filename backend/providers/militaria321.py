@@ -182,6 +182,7 @@ class Militaria321Provider(BaseProvider):
             
             # If we still have no listings, create some sample data for testing
             if not listings and page == 1:
+                logger.info(f"No real listings found for '{original_query}', creating sample data")
                 listings = self._create_sample_listings(original_query)
                 total_count = 15  # Simulate more results available
                 has_more = True
