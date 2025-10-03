@@ -23,3 +23,14 @@ numpy>=1.26.0
 python-multipart>=0.0.9
 jq>=1.6.0
 typer>=0.9.0
+# Telegram bot dependencies
+aiogram>=3.12.0
+aiohttp>=3.9.0
+# Job scheduling
+apscheduler>=3.10.4
+# Web scraping for auction sites
+httpx>=0.27.0
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+# Date handling
+python-dateutil>=2.9.0
