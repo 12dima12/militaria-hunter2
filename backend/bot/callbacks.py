@@ -211,3 +211,74 @@ async def callback_export_keywords(callback_query: CallbackQuery):
     except Exception as e:
         logger.error(f"Error exporting keywords: {e}")
         await callback_query.answer("❌ Fehler beim Exportieren", show_alert=True)
+
+
+@callback_router.callback_query(lambda c: c.data.startswith("retest_"))
+async def callback_retest_keyword(callback_query: CallbackQuery):
+    """Handle keyword retest"""
+    await callback_query.answer()
+    
+    keyword_id = callback_query.data.split("_")[-1]
+    
+    try:
+        keyword = await keyword_service.get_keyword_by_id(keyword_id)
+        if not keyword:
+            await callback_query.message.answer("❌ Suchbegriff nicht gefunden.")
+            return
+        
+        # Check ownership
+        user = await db_manager.get_user_by_telegram_id(callback_query.from_user.id)
+        if not user or keyword.user_id != user.id:
+            await callback_query.answer("❌ Keine Berechtigung", show_alert=True)
+            return
+        
+        # Show "searching" message
+        searching_msg = await callback_query.message.answer("🔍 **Erneuter Test läuft...**\n\nSuche aktuelle Treffer.", parse_mode="Markdown")
+        
+        # Perform sample search
+        from providers.militaria321 import Militaria321Provider
+        
+        provider = Militaria321Provider()
+        search_result = await provider.search(keyword.keyword, sample_mode=True)
+        
+        if search_result.items:
+            # Show top 3 results
+            sample_text = f"**Aktuelle Treffer – militaria321.com**\n\n"
+            
+            shown_count = min(3, len(search_result.items))
+            for i in range(shown_count):
+                item = search_result.items[i]
+                
+                # Format price
+                price_str = ""
+                if item.price_value and item.price_currency:
+                    price_str = f" – {item.price_value:.2f} {item.price_currency}"
+                elif item.price_value:
+                    price_str = f" – {item.price_value:.2f} €"
+                
+                # Format location
+                location_str = ""
+                if item.location:
+                    location_str = f" – {item.location}"
+                
+                sample_text += f"{i+1}. [{item.title[:60]}...]({item.url}){price_str}{location_str}\n\n"
+            
+            # Add "more results" line
+            remaining = len(search_result.items) - shown_count
+            if search_result.total_count and search_result.total_count > shown_count:
+                remaining = search_result.total_count - shown_count
+                sample_text += f"*({remaining} weitere Treffer)*"
+            elif remaining > 0:
+                sample_text += f"*({remaining} weitere Treffer)*"
+            elif search_result.has_more:
+                sample_text += f"*(weitere Treffer verfügbar)*"
+        else:
+            sample_text = f"**Aktuelle Treffer – militaria321.com**\n\n❌ Keine Treffer für **'{keyword.keyword}'** gefunden."
+        
+        sample_text += f"\n\n🔍 Begriff: **{keyword.keyword}** (aktiv überwacht)"
+        
+        await searching_msg.edit_text(sample_text, parse_mode="Markdown")
+        
+    except Exception as e:
+        logger.error(f"Error in retest: {e}")
+        await callback_query.answer("❌ Fehler beim erneuten Test", show_alert=True)
