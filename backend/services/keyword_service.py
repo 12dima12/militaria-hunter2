@@ -82,3 +82,7 @@ class KeywordService:
     async def get_keyword_hit_count(self, keyword_id: str) -> int:
         """Get total hit count for keyword"""
         return await self.db.get_keyword_hit_count(keyword_id)
+    
+    async def update_keyword_first_run(self, keyword_id: str, completed: bool = True) -> bool:
+        """Mark keyword first run as completed"""
+        return await self.db.update_keyword(keyword_id, {"first_run_completed": completed})
