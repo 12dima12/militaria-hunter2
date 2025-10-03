@@ -46,7 +46,7 @@ class SearchService:
                         provider = self.providers[platform]
                         search_result = await provider.search(keyword.keyword, since_ts, sample_mode=False)
                         all_listings.extend(search_result.items)
-                        logger.info(f"Found {len(listings)} listings for '{keyword.keyword}' on {platform}")
+                        logger.info(f"Found {len(search_result.items)} listings for '{keyword.keyword}' on {platform}")
                         
                     except Exception as e:
                         error_msg = f"Error searching {platform}: {str(e)}"
