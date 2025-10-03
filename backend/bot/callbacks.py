@@ -1,6 +1,7 @@
 from aiogram import Router, types
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 import logging
+from datetime import datetime
 
 from database import DatabaseManager
 from services.keyword_service import KeywordService
