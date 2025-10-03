@@ -358,6 +358,76 @@ async def cmd_resume(message: Message):
     await message.answer(f"▶️ Suchbegriff **'{keyword_text}'** wurde fortgesetzt.\n\nDie Suche läuft wieder.", parse_mode="Markdown")
 
 
+@router.message(Command("testen"))
+async def cmd_test(message: Message):
+    """Handle /testen command - re-run sample search"""
+    user = await ensure_user(message.from_user)
+    
+    args = message.text.split(" ", 1)
+    if len(args) < 2:
+        await message.answer("❌ Bitte geben Sie den zu testenden Suchbegriff an.\n\nBeispiel: `/testen Wehrmacht Helm`", parse_mode="Markdown")
+        return
+    
+    keyword_text = args[1].strip()
+    keyword = await keyword_service.get_user_keyword(user.id, keyword_text)
+    
+    if not keyword:
+        await message.answer(f"❌ Suchbegriff **'{keyword_text}'** nicht gefunden.", parse_mode="Markdown")
+        return
+    
+    # Show "searching" message
+    searching_msg = await message.answer("🔍 **Test läuft...**\n\nSuche aktuelle Treffer für Ihren Begriff.", parse_mode="Markdown")
+    
+    # Perform sample search (without marking as seen)
+    try:
+        from providers.militaria321 import Militaria321Provider
+        
+        provider = Militaria321Provider()
+        search_result = await provider.search(keyword_text, sample_mode=True)
+        
+        if search_result.items:
+            # Show top 3 results
+            sample_text = f"**Test-Ergebnisse – militaria321.com**\n\n"
+            
+            shown_count = min(3, len(search_result.items))
+            for i in range(shown_count):
+                item = search_result.items[i]
+                
+                # Format price
+                price_str = ""
+                if item.price_value and item.price_currency:
+                    price_str = f" – {item.price_value:.2f} {item.price_currency}"
+                elif item.price_value:
+                    price_str = f" – {item.price_value:.2f} €"
+                
+                # Format location
+                location_str = ""
+                if item.location:
+                    location_str = f" – {item.location}"
+                
+                sample_text += f"{i+1}. [{item.title[:60]}...]({item.url}){price_str}{location_str}\n\n"
+            
+            # Add "more results" line
+            remaining = len(search_result.items) - shown_count
+            if search_result.total_count and search_result.total_count > shown_count:
+                remaining = search_result.total_count - shown_count
+                sample_text += f"*({remaining} weitere Treffer)*"
+            elif remaining > 0:
+                sample_text += f"*({remaining} weitere Treffer)*"
+            elif search_result.has_more:
+                sample_text += f"*(weitere Treffer verfügbar)*"
+        else:
+            sample_text = f"**Test-Ergebnisse – militaria321.com**\n\n❌ Keine Treffer für **'{keyword_text}'** gefunden."
+        
+        sample_text += f"\n\n🔍 Begriff: **{keyword_text}** (aktiv überwacht)"
+        
+        await searching_msg.edit_text(sample_text, parse_mode="Markdown")
+        
+    except Exception as e:
+        logger.error(f"Error performing test search: {e}")
+        await searching_msg.edit_text(f"❌ Fehler beim Testen von **'{keyword_text}'**.", parse_mode="Markdown")
+
+
 async def ensure_user(telegram_user) -> User:
     """Ensure user exists in database"""
     if not db_manager:
