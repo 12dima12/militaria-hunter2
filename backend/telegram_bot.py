@@ -8,6 +8,8 @@ from aiogram.enums import ParseMode
 from database import DatabaseManager
 from bot.handlers import router
 from bot.callbacks import callback_router
+from bot import handlers, callbacks
+from services.keyword_service import KeywordService
 
 logger = logging.getLogger(__name__)
 
