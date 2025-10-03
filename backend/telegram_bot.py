@@ -60,6 +60,11 @@ class TelegramBotManager:
             # Initialize database
             await self.db.initialize()
             
+            # Initialize services for handlers
+            keyword_service = KeywordService(self.db)
+            handlers.set_services(self.db, keyword_service)
+            callbacks.set_services(self.db, keyword_service)
+            
             # Start polling
             self.is_running = True
             
