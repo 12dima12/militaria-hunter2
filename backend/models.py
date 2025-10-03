@@ -7,7 +7,7 @@ import uuid
 
 @dataclass
 class Listing:
-    """Normalized listing schema for all auction platforms"""
+    """Normalized listing schema for militaria321.com"""
     platform: str            # "militaria321.com"
     platform_id: str         # canonical ID from the platform
     title: str
@@ -22,6 +22,14 @@ class Listing:
     image_url: Optional[str] = None
     first_seen_ts: datetime = Field(default_factory=lambda: datetime.utcnow())
     last_seen_ts: datetime = Field(default_factory=lambda: datetime.utcnow())
+
+
+@dataclass
+class SearchResult:
+    """Result from a search operation"""
+    items: List[Listing]
+    total_count: Optional[int] = None  # total available results, if known
+    has_more: bool = False
 
 
 # MongoDB Pydantic Models
@@ -48,6 +56,7 @@ class Keyword(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     last_checked: Optional[datetime] = None
+    first_run_completed: bool = False  # Track if first-run sample was shown
 
 
 class StoredListing(BaseModel):
@@ -79,6 +88,7 @@ class KeywordHit(BaseModel):
     user_id: str
     seen_ts: datetime = Field(default_factory=datetime.utcnow)
     notified: bool = False
+    is_sample: bool = False  # Mark if this was from first-run sample
 
 
 class Notification(BaseModel):
@@ -89,3 +99,4 @@ class Notification(BaseModel):
     telegram_message_id: Optional[int] = None
     sent_at: datetime = Field(default_factory=datetime.utcnow)
     status: str = "sent"  # sent, failed, cancelled
+    notification_type: str = "new_item"  # new_item, first_run_sample
