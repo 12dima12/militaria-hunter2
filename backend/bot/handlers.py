@@ -262,6 +262,10 @@ async def cmd_resume(message: Message):
 
 async def ensure_user(telegram_user) -> User:
     """Ensure user exists in database"""
+    if not db_manager:
+        logger.error("Database manager not initialized")
+        raise Exception("Database not available")
+    
     user = await db_manager.get_user_by_telegram_id(telegram_user.id)
     
     if not user:
