@@ -103,36 +103,134 @@ async def cmd_search(message: Message):
         await message.answer(f"⚠️ Suchbegriff **'{keyword_text}'** existiert bereits.", parse_mode="Markdown")
         return
     
+    # Show "searching" message
+    searching_msg = await message.answer("🔍 **Suche läuft...**\n\nSuche erste Treffer für Ihren Begriff.", parse_mode="Markdown")
+    
     # Create new keyword
     try:
         keyword = await keyword_service.create_keyword(user.id, keyword_text)
         
-        # Create inline keyboard with management options
+        # Perform first-run sample search
+        await perform_first_run_sample(message, keyword, keyword_text, searching_msg)
+        
+    except Exception as e:
+        logger.error(f"Error creating keyword: {e}")
+        await searching_msg.edit_text("❌ Fehler beim Erstellen des Suchbegriffs. Bitte versuchen Sie es erneut.")
+
+
+async def perform_first_run_sample(message: Message, keyword, keyword_text: str, searching_msg: Message):
+    """Perform first-run sample search and display results"""
+    try:
+        from providers.militaria321 import Militaria321Provider
+        from services.search_service import SearchService
+        
+        # Initialize provider and search
+        provider = Militaria321Provider()
+        search_result = await provider.search(keyword_text, sample_mode=True)
+        
+        # Create sample message
+        if search_result.items:
+            # Show top 3 results
+            sample_text = f"**Erste Treffer – militaria321.com**\n\n"
+            
+            shown_count = min(3, len(search_result.items))
+            for i in range(shown_count):
+                item = search_result.items[i]
+                
+                # Format price
+                price_str = ""
+                if item.price_value and item.price_currency:
+                    price_str = f" – {item.price_value:.2f} {item.price_currency}"
+                elif item.price_value:
+                    price_str = f" – {item.price_value:.2f} €"
+                
+                # Format location
+                location_str = ""
+                if item.location:
+                    location_str = f" – {item.location}"
+                
+                sample_text += f"{i+1}. [{item.title[:60]}...]({item.url}){price_str}{location_str}\n\n"
+            
+            # Add "more results" line
+            remaining = len(search_result.items) - shown_count
+            if search_result.total_count and search_result.total_count > shown_count:
+                remaining = search_result.total_count - shown_count
+                sample_text += f"*({remaining} weitere Treffer)*"
+            elif remaining > 0:
+                sample_text += f"*({remaining} weitere Treffer)*"
+            elif search_result.has_more:
+                sample_text += f"*(weitere Treffer verfügbar)*"
+            
+            # Mark sample items as seen
+            await mark_sample_items_as_seen(keyword.id, keyword.user_id, search_result.items[:shown_count])
+            
+            # Update keyword as first run completed
+            await keyword_service.update_keyword_first_run(keyword.id, True)
+            
+        else:
+            sample_text = f"**Erste Treffer – militaria321.com**\n\n❌ Keine Treffer für **'{keyword_text}'** gefunden.\n\nDer Bot überwacht weiterhin und benachrichtigt Sie bei neuen Einträgen."
+        
+        # Add management info
+        sample_text += f"\n\n✅ **Suchbegriff aktiv**\n🔍 Begriff: **{keyword_text}**\n⏱️ Frequenz: Alle 60 Sekunden\n\nSie erhalten Benachrichtigungen bei neuen Treffern."
+        
+        # Create inline keyboard
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text="📊 Statistiken", callback_data=f"stats_{keyword.id}"),
                 InlineKeyboardButton(text="⏸️ Pausieren", callback_data=f"pause_{keyword.id}")
             ],
             [
-                InlineKeyboardButton(text="⚙️ Einstellungen", callback_data=f"settings_{keyword.id}"),
+                InlineKeyboardButton(text="🔄 Erneut testen", callback_data=f"retest_{keyword.id}"),
                 InlineKeyboardButton(text="🗑️ Löschen", callback_data=f"delete_{keyword.id}")
             ]
         ])
         
-        success_text = f"""✅ **Suchbegriff erstellt!**
-
-🔍 Begriff: **{keyword_text}**
-📊 Status: Aktiv
-⏱️ Frequenz: Alle 60 Sekunden
-🌐 Plattform: Militaria321.com
-
-Der Bot beginnt sofort mit der Suche. Sie erhalten Benachrichtigungen bei neuen Treffern."""
-
-        await message.answer(success_text, parse_mode="Markdown", reply_markup=keyboard)
+        # Edit the searching message with results
+        await searching_msg.edit_text(sample_text, parse_mode="Markdown", reply_markup=keyboard)
         
     except Exception as e:
-        logger.error(f"Error creating keyword: {e}")
-        await message.answer("❌ Fehler beim Erstellen des Suchbegriffs. Bitte versuchen Sie es erneut.")
+        logger.error(f"Error performing first-run sample: {e}")
+        await searching_msg.edit_text(f"❌ Fehler beim Suchen von Treffern für **'{keyword_text}'**.\n\nDer Suchbegriff wurde erstellt und überwacht weiterhin.", parse_mode="Markdown")
+
+
+async def mark_sample_items_as_seen(keyword_id: str, user_id: str, items: list):
+    """Mark sample items as seen to avoid duplicate notifications"""
+    try:
+        from models import KeywordHit, StoredListing
+        
+        for item in items:
+            # Store listing in database
+            stored_listing = StoredListing(
+                platform=item.platform,
+                platform_id=item.platform_id,
+                title=item.title,
+                url=item.url,
+                price_value=item.price_value,
+                price_currency=item.price_currency,
+                location=item.location,
+                condition=item.condition,
+                seller_name=item.seller_name,
+                seller_rating=item.seller_rating,
+                listing_type=item.listing_type,
+                image_url=item.image_url,
+                first_seen_ts=item.first_seen_ts,
+                last_seen_ts=item.last_seen_ts
+            )
+            
+            # Create or update listing
+            await db_manager.create_or_update_listing(stored_listing)
+            
+            # Create keyword hit marked as sample
+            hit = KeywordHit(
+                keyword_id=keyword_id,
+                listing_id=stored_listing.id,
+                user_id=user_id,
+                is_sample=True
+            )
+            await db_manager.create_keyword_hit(hit)
+            
+    except Exception as e:
+        logger.error(f"Error marking sample items as seen: {e}")
 
 
 @router.message(Command("liste"))
