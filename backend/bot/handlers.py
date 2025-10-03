@@ -5,7 +5,6 @@ import logging
 from datetime import datetime
 from typing import List
 
-from database import DatabaseManager
 from models import User, Keyword
 from services.keyword_service import KeywordService
 
@@ -14,9 +13,15 @@ logger = logging.getLogger(__name__)
 # Create router
 router = Router()
 
-# Initialize services
-db_manager = DatabaseManager()
-keyword_service = KeywordService(db_manager)
+# Services will be injected from main application
+db_manager = None
+keyword_service = None
+
+def set_services(db_mgr, keyword_svc):
+    """Set services from main application"""
+    global db_manager, keyword_service
+    db_manager = db_mgr
+    keyword_service = keyword_svc
 
 
 @router.message(Command("start"))
