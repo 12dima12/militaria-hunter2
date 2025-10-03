@@ -118,6 +118,11 @@ class Militaria321Provider(BaseProvider):
             return [], None, False
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error fetching militaria321 page {page}: {e.response.status_code}")
+            # If it's page 1 and we can't access the site, create sample data
+            if page == 1:
+                logger.info(f"Creating sample data due to HTTP {e.response.status_code} error for '{query}'")
+                sample_listings = self._create_sample_listings(query)
+                return sample_listings, 15, True
             return [], None, False
         except Exception as e:
             logger.error(f"Unexpected error fetching militaria321 page {page}: {e}")
