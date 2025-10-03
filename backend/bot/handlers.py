@@ -52,8 +52,9 @@ async def cmd_help(message: Message):
     help_text = """📋 **Befehlsübersicht:**
 
 **Suchbegriffe verwalten:**
-/suche <Begriff> - Neuen Suchbegriff erstellen
+/suche <Begriff> - Neuen Suchbegriff erstellen (zeigt sofort erste Treffer)
 /liste - Aktive Suchbegriffe anzeigen
+/testen <Begriff> - Aktuelle Treffer für Begriff anzeigen
 /aendern <Alt> <Neu> - Suchbegriff umbenennen
 /loeschen <Begriff> - Suchbegriff löschen
 
@@ -68,11 +69,13 @@ async def cmd_help(message: Message):
 /export - Suchbegriffe als Datei exportieren
 
 **Beispiele:**
-`/suche "WW2 Medaille"`
+`/suche "Wehrmacht Helm"` - Erstellt Begriff und zeigt Top 3 Treffer
+`/testen "Wehrmacht Helm"` - Zeigt aktuelle Top 3 Treffer
 `/frequenz "Wehrmacht Helm" 5m`
-`/stumm "WW2 Medaille" 30m`
+`/stumm "Wehrmacht Helm" 30m`
 
-Der Bot durchsucht derzeit: **Militaria321.com**"""
+**Plattform:** Militaria321.com
+**Erste Treffer:** Bei jedem neuen Suchbegriff sofort angezeigt"""
 
     await message.answer(help_text, parse_mode="Markdown")
 
