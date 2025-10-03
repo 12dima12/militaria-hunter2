@@ -209,20 +209,23 @@ async def test_search(keyword: str = "Wehrmacht"):
         from providers.militaria321 import Militaria321Provider
         
         provider = Militaria321Provider()
-        results = await provider.search(keyword)
+        search_result = await provider.search(keyword, sample_mode=True)
         
         return {
             "keyword": keyword,
             "platform": "militaria321.com",
-            "results_count": len(results),
+            "results_count": len(search_result.items),
+            "total_count": search_result.total_count,
+            "has_more": search_result.has_more,
             "results": [
                 {
                     "title": r.title,
                     "url": r.url,
                     "price": f"{r.price_value} {r.price_currency}" if r.price_value else None,
-                    "platform_id": r.platform_id
+                    "platform_id": r.platform_id,
+                    "location": r.location
                 }
-                for r in results[:5]  # Return first 5 results
+                for r in search_result.items[:5]  # Return first 5 results
             ]
         }
         
