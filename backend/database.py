@@ -383,17 +383,19 @@ class DatabaseManager:
     async def add_to_seen_set_batch(self, keyword_id: str, listing_keys: List[str]) -> bool:
         """
         Add multiple listing keys to a keyword's seen_listing_keys set in batch.
-        Uses $addToSet to ensure no duplicates.
-        
-        Args:
-            keyword_id: The keyword ID
-            listing_keys: List of "platform:platform_id" strings
-            
-        Returns:
-            True if update succeeded
+        Uses $addToSet with $each to ensure no duplicates.
         """
         if not listing_keys:
             return True
+        try:
+            result = await self.db.keywords.update_one(
+                {"id": keyword_id},
+                {"$addToSet": {"seen_listing_keys": {"$each": listing_keys}}}
+            )
+            return result.modified_count > 0 or result.matched_count > 0
+        except Exception as e:
+            logger.error(f"Error adding to seen set for keyword {keyword_id}: {e}")
+            return False
 
     async def create_notification_idempotent(self, user_id: str, keyword_id: str, listing_key: str, notification_data: dict) -> bool:
         """
