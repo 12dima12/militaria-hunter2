@@ -268,12 +268,32 @@ async def handle_delete_keyword_callback(callback: CallbackQuery):
         await callback.answer("❌ Fehler beim Löschen.", show_alert=True)
 
 async def cmd_admin_clear(message: Message):
-    """Handle /admin clear and /clear commands - public wipe of stored products"""
-    # Check if it's /admin clear (not just /admin)
-    if message.text.startswith("/admin") and "clear" not in message.text:
+    """Handle /admin clear command - public wipe of stored products"""
+    # Parse command to ensure it's "clear"
+    args = message.text.split()
+    if len(args) < 2 or args[1].lower() != "clear":
         await message.answer("❓ Verwenden Sie `/admin clear` zum Bereinigen der Datenbank.")
         return
     
+    user = await ensure_user(message.from_user)
+    
+    # Create confirmation keyboard
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Ja, alles löschen", callback_data="admin_clear_confirm"),
+            InlineKeyboardButton(text="❌ Abbrechen", callback_data="admin_clear_cancel")
+        ]
+    ])
+    
+    await message.answer(
+        "⚠️ Achtung: Dies löscht *alle gespeicherten Angebote und Benachrichtigungen* für alle Nutzer. "
+        "Nutzer & Keywords bleiben erhalten. Fortfahren?",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+
+async def cmd_clear(message: Message):
+    """Handle /clear command - alias for admin clear"""
     user = await ensure_user(message.from_user)
     
     # Create confirmation keyboard
