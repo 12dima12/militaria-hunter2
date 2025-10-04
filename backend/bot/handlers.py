@@ -74,7 +74,7 @@ async def cmd_help(message: Message):
 `/stumm "Wehrmacht Helm" 30m`
 
 **Plattform:** Militaria321.com
-**Hinweis:** Löschfunktion ist derzeit nicht verfügbar. Verwenden Sie /pausieren oder /stumm."""
+**Hinweis:** Alle Befehle arbeiten mit exakter Titel-Übereinstimmung und deutscher Preisformatierung."""
 
     await message.answer(help_text, parse_mode="Markdown")
 
