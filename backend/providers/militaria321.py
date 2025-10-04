@@ -261,32 +261,26 @@ class Militaria321Provider(BaseProvider):
                 
                 # Verify the response actually reflects our query
                 page_text = soup.get_text().lower()
-                query_normalized = self._normalize_text(query)
+                query_normalized = self._normalize_text(query).lower()
                 
-                # Check if the search was actually performed by looking for query reflection
-                query_reflected = False
-                search_indicators = [
-                    f'suchergebnisse "{query.lower()}"',
-                    f'suche nach "{query.lower()}"',
-                    f'suchbegriff: {query.lower()}'
-                ]
-                
-                for indicator in search_indicators:
-                    if indicator in page_text:
-                        query_reflected = True
-                        break
-                
-                # Also check if query appears directly in page text
-                if query.lower() in page_text:
-                    query_reflected = True
+                # Check if the search was actually performed
+                query_reflected = query_normalized in page_text
                 
                 if not query_reflected and page == 1:
-                    logger.warning(f"Query '{query}' not reflected in search results page")
+                    logger.warning(f"Query '{query}' (normalized: '{query_normalized}') not reflected in search results page")
+                    
                     # Check for empty search indicators
-                    if 'suchergebnisse ""' in page_text or 'keine treffer' in page_text:
-                        logger.info("Search returned no results or empty query")
-                        return [], 0, False
-                    # Continue processing even if query not reflected - might be valid results
+                    empty_indicators = ['keine treffer', 'keine ergebnisse', 'no results found']
+                    for indicator in empty_indicators:
+                        if indicator in page_text:
+                            logger.info(f"Found empty result indicator: '{indicator}'")
+                            return [], 0, False
+                    
+                    # If query not reflected and no results, likely failed search
+                    logger.warning("Query not reflected and no empty result indicators - treating as failed search")
+                    return [], 0, False
+                
+                logger.info(f"Query '{query}' successfully reflected in search results")
                 
                 # Debug: Check for common error messages or empty result indicators
                 error_indicators = [
