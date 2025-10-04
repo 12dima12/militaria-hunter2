@@ -96,7 +96,7 @@ class Militaria321Provider(BaseProvider):
         
         try:
             # Build search URL with query and page
-            search_params = f"?q={quote_plus(query)}"
+            search_params = f"?wort={quote_plus(query)}"
             if page > 1:
                 search_params += f"&page={page}"
             
