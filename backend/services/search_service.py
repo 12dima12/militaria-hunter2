@@ -1,7 +1,9 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncio
+import httpx
+from bs4 import BeautifulSoup
 
 from models import Listing, StoredListing, KeywordHit, Notification, Keyword
 from database import DatabaseManager
