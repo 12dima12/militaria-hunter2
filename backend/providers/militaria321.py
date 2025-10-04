@@ -19,7 +19,7 @@ class Militaria321Provider(BaseProvider):
     def __init__(self):
         super().__init__("militaria321.com")
         self.base_url = "https://www.militaria321.com"
-        self.search_url = f"{self.base_url}/search"
+        self.search_url = f"{self.base_url}/search.cfm"
         
     async def search(self, keyword: str, since_ts: Optional[datetime] = None, sample_mode: bool = False) -> SearchResult:
         """Search militaria321.com for listings"""
