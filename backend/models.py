@@ -53,7 +53,7 @@ class Keyword(BaseModel):
     is_muted: bool = False
     muted_until: Optional[datetime] = None
     frequency_seconds: int = 60  # Default 60 seconds
-    platforms: List[str] = Field(default_factory=lambda: ["militaria321.com"])
+    platforms: List[str] = Field(default_factory=lambda: ["egun.de", "militaria321.com"])  # Alphabetical order
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     last_checked: Optional[datetime] = None
