@@ -471,99 +471,23 @@ class SearchService:
                 pages_scanned = 1  # Provider handles pagination internally
                 
                 logger.info(f"{platform}: collected {items_collected} items using provider search")
-                        # Check for loop
-                        if current_url in visited_urls:
-                            logger.warning(f"Pagination loop detected at {current_url}, stopping")
-                            break
-                        visited_urls.add(current_url)
-                        
-                        # Rate limiting with jitter
-                        if pages_scanned > 0:
-                            jitter = random.uniform(0.25, 0.75)
-                            await asyncio.sleep(jitter)
-                        
+                # Batch add to seen_set using stable keys
+                if all_items:
+                    from utils.listing_key import build_listing_key
+                    keys_batch = []
+                    for item in all_items:
                         try:
-                            # Fetch page with retries on rate limit
-                            max_retries = 3
-                            for attempt in range(max_retries):
-                                try:
-                                    response = await client.get(current_url)
-                                    
-                                    if response.status_code == 429:
-                                        # Rate limited
-                                        backoff = (2 ** attempt) * 0.5
-                                        logger.warning(f"Rate limited on {platform}, backing off {backoff}s")
-                                        await asyncio.sleep(backoff)
-                                        continue
-                                    
-                                    response.raise_for_status()
-                                    break
-                                    
-                                except httpx.HTTPStatusError as e:
-                                    if e.response.status_code >= 500 and attempt < max_retries - 1:
-                                        backoff = (2 ** attempt) * 0.5
-                                        logger.warning(f"Server error on {platform}, retrying in {backoff}s")
-                                        await asyncio.sleep(backoff)
-                                        continue
-                                    raise
-                            
-                            # Set encoding
-                            if response.encoding is None or response.encoding.lower() == 'iso-8859-1':
-                                response.encoding = 'utf-8'
-                            
-                            # CRITICAL FIX: Use provider's own search method instead of manual parsing
-                            # Each provider has its own complex search logic that we shouldn't duplicate
-                            # We'll use the provider's search() but collect ALL items without filtering
-                            
-                            logger.debug(f"Fetching results using provider's search method for page {pages_scanned + 1}")
-                            break  # Exit the while loop - we'll use provider.search() instead
-                            
-                            # If this page had 0 items, stop pagination (no point continuing)
-                            if items_on_page == 0:
-                                logger.info(f"{platform} page {pages_scanned + 1} has 0 items, stopping pagination")
-                                break
-                            
-                            # Batch add to seen_set using stable keys
-                            if page_items:
-                                from utils.listing_key import build_listing_key
-                                keys_batch = []
-                                for item in page_items:
-                                    try:
-                                        key = build_listing_key(platform, item.url)
-                                        keys_batch.append(key)
-                                    except ValueError as e:
-                                        logger.warning(f"Skipping item during seeding due to key error: {e}")
-                                        continue
-                                
-                                # Add to database in batch
-                                if keys_batch:
-                                    await self.db.add_to_seen_set_batch(keyword_id, keys_batch)
-                                    keys_added_count += len(keys_batch)
-                            
-                            pages_scanned += 1
-                            total_pages_scanned += 1
-                            
-                            logger.debug(f"{platform} page {pages_scanned}: {items_on_page} items, total collected: {items_collected}")
-                            
-                            # Get next page URL
-                            next_url = provider._get_next_page_url(current_url, soup)
-                            
-                            if next_url:
-                                logger.debug(f"{platform} next page: {next_url}")
-                                current_url = next_url
-                            else:
-                                logger.info(f"{platform} reached last page at page {pages_scanned}")
-                                break
-                            
-                            # Global hard cap check
-                            if total_pages_scanned >= SEED_HARD_CAP:
-                                logger.warning(f"Hit global SEED_HARD_CAP of {SEED_HARD_CAP} pages, stopping all seeding")
-                                break
-                        
-                        except Exception as e:
-                            logger.error(f"Error fetching page {pages_scanned + 1} for {platform}: {e}")
-                            # Continue with next page or stop
-                            break
+                            key = build_listing_key(platform, item.url)
+                            keys_batch.append(key)
+                        except ValueError as e:
+                            logger.warning(f"Skipping item during seeding due to key error: {e}")
+                            continue
+                    
+                    # Add to database in batch
+                    if keys_batch:
+                        await self.db.add_to_seen_set_batch(keyword_id, keys_batch)
+                        keys_added_count = len(keys_batch)
+                        logger.info(f"{platform}: added {keys_added_count} keys to seen_set")
                 
                 duration_ms = int((time.time() - start_time) * 1000)
                 
