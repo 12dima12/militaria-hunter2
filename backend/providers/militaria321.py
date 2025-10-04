@@ -236,23 +236,14 @@ class Militaria321Provider(BaseProvider):
         }
         
         try:
-            # Build search URL with query and page - try different parameter formats
-            search_params = f"?wort={quote_plus(query)}&act=auctions_search"
-            if page > 1:
-                search_params += f"&page={page}"
-            
-            url = f"{self.search_url}{search_params}"
-            
             async with httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
-                # Try GET request with URL parameters (seems to be what militaria321 expects)
-                search_params = f"?wort={quote_plus(query)}"
+                # Build correct search parameters - militaria321 uses 'q' parameter
+                params = {'q': query}
                 if page > 1:
-                    search_params += f"&page={page}"
+                    params['startat'] = ((page - 1) * 50) + 1  # Pagination offset
                 
-                url = f"{self.search_url}{search_params}"
-                
-                logger.info(f"GET search to militaria321 page {page}: {url}")
-                response = await client.get(url)
+                logger.info(f"GET search to militaria321 page {page} with params: {params}")
+                response = await client.get(self.search_url, params=params)
                 response.raise_for_status()
                 
                 # Debug: Log response details
