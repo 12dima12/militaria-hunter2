@@ -199,6 +199,12 @@ class DatabaseManager:
         await self.db.notifications.insert_one(notification_dict)
         return notification
     
+    async def log_delete_attempt(self, log: DeleteAttemptLog) -> DeleteAttemptLog:
+        """Log a delete attempt for telemetry"""
+        log_dict = log.dict()
+        await self.db.delete_attempt_logs.insert_one(log_dict)
+        return log
+    
     async def close(self):
         """Close database connection"""
         if self.client:
