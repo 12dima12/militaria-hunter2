@@ -49,44 +49,27 @@ async def inspect_egun_search():
                 if inp_name:  # Only show fields with names
                     print(f"  - [{inp_type}] name='{inp_name}', value='{inp_value}', id='{inp_id}'")
         
-        # Try to find a search page
+        # Check if egun.de is accessible
         print("\n" + "=" * 80)
-        print("2. Looking for search page...")
+        print("2. Exploring egun.de structure...")
         print("=" * 80)
         
-        # Common search page URLs
-        search_urls = [
-            f"{base_url}/search",
-            f"{base_url}/suche",
-            f"{base_url}/markt/suche",
-            f"{base_url}/market/search",
-        ]
+        # Check main page content
+        page_text = soup.get_text()
+        print(f"Page text preview (first 500 chars): {page_text[:500]}")
         
-        for search_url in search_urls:
-            try:
-                response = await client.get(search_url)
-                if response.status_code == 200:
-                    print(f"\n✓ Found search page: {search_url}")
-                    soup = BeautifulSoup(response.text, 'html.parser')
-                    
-                    forms = soup.find_all('form')
-                    print(f"Found {len(forms)} forms on search page")
-                    
-                    for i, form in enumerate(forms[:2]):  # Show first 2 forms
-                        print(f"\n--- Form {i+1} ---")
-                        print(f"Action: {form.get('action')}")
-                        print(f"Method: {form.get('method', 'GET')}")
-                        
-                        inputs = form.find_all(['input', 'select', 'textarea'])
-                        for inp in inputs:
-                            inp_type = inp.get('type', inp.name)
-                            inp_name = inp.get('name')
-                            inp_value = inp.get('value', '')
-                            if inp_name:
-                                print(f"  - [{inp_type}] name='{inp_name}', value='{inp_value}'")
-                    break
-            except Exception as e:
-                print(f"  ✗ {search_url}: {e}")
+        # Look for any search-related links
+        all_links = soup.find_all('a', href=True)
+        search_related = [l for l in all_links if any(word in l.get('href', '').lower() for word in ['search', 'suche', 'find'])]
+        print(f"\nFound {len(search_related)} search-related links")
+        for link in search_related[:5]:
+            print(f"  - {link.get('href')}")
+        
+        # Look for market/markt links
+        markt_links = [l for l in all_links if 'markt' in l.get('href', '').lower()]
+        print(f"\nFound {len(markt_links)} markt-related links")
+        for link in markt_links[:5]:
+            print(f"  - {link.get('href')}")
         
         # Try an actual search
         print("\n" + "=" * 80)
