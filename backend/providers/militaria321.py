@@ -547,8 +547,8 @@ class Militaria321Provider(BaseProvider):
             if not url:
                 return None
             
-            # Extract price
-            price_value, price_currency = self._extract_price(element)
+            # Extract price using new robust parsing
+            price_value, price_currency = self._extract_price_robust(element)
             
             # Extract image
             image_url = self._extract_image(element)
