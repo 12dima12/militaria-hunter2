@@ -24,10 +24,9 @@ class Listing:
     first_seen_ts: datetime = Field(default_factory=lambda: datetime.utcnow())
     last_seen_ts: datetime = Field(default_factory=lambda: datetime.utcnow())
     # Platform posting/auction start timestamp (parsed from detail page); stored in UTC
+    posted_ts: Optional[datetime] = None
     # Optional auction/listing end timestamp (UTC)
     end_ts: Optional[datetime] = None
-
-    posted_ts: Optional[datetime] = None
 
 
 @dataclass
