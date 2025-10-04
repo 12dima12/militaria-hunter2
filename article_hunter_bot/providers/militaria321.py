@@ -185,8 +185,8 @@ class Militaria321Provider(BaseProvider):
                 
                 full_url = urljoin(self.BASE_URL, relative_url)
                 
-                # Extract platform_id from URL: /auktion/<id>/...
-                match = re.search(r'/auktion/([^/]+)', relative_url)
+                # Extract platform_id from URL: auktion/<id>/... or /auktion/<id>/...
+                match = re.search(r'auktion/([^/]+)', relative_url)
                 if not match:
                     continue
                 
