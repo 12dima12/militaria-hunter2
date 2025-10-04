@@ -175,44 +175,7 @@ async def perform_setup_search_with_count(message: Message, keyword, keyword_tex
         await searching_msg.edit_text(f"❌ Fehler beim Einrichten der Suche für **'{keyword_text}'**.\n\nBitte versuchen Sie es erneut.", parse_mode="Markdown")
 
 
-async def mark_sample_items_as_seen(keyword_id: str, user_id: str, items: list):
-    """Mark sample items as seen to avoid duplicate notifications"""
-    try:
-        from models import KeywordHit, StoredListing
-        
-        for item in items:
-            # Store listing in database
-            stored_listing = StoredListing(
-                platform=item.platform,
-                platform_id=item.platform_id,
-                title=item.title,
-                url=item.url,
-                price_value=item.price_value,
-                price_currency=item.price_currency,
-                location=item.location,
-                condition=item.condition,
-                seller_name=item.seller_name,
-                seller_rating=item.seller_rating,
-                listing_type=item.listing_type,
-                image_url=item.image_url,
-                first_seen_ts=item.first_seen_ts,
-                last_seen_ts=item.last_seen_ts
-            )
-            
-            # Create or update listing
-            await db_manager.create_or_update_listing(stored_listing)
-            
-            # Create keyword hit marked as sample
-            hit = KeywordHit(
-                keyword_id=keyword_id,
-                listing_id=stored_listing.id,
-                user_id=user_id,
-                is_sample=True
-            )
-            await db_manager.create_keyword_hit(hit)
-            
-    except Exception as e:
-        logger.error(f"Error marking sample items as seen: {e}")
+# Removed mark_sample_items_as_seen - now using seen_set approach
 
 
 @router.message(Command("liste"))
