@@ -122,36 +122,86 @@ async def cmd_search(message: Message):
 
 
 async def perform_setup_search_with_count(message: Message, keyword, keyword_text: str, searching_msg: Message):
-    """Perform setup search, count existing matches, and seed seen_set"""
+    """Perform setup search across all providers, render per-provider blocks, and seed seen_set"""
     try:
-        from providers.militaria321 import Militaria321Provider
+        from providers import get_all_providers
+        from decimal import Decimal
         
         # Reset keyword subscription
         await keyword_service.reset_keyword_subscription(keyword.id)
         
-        # Initialize provider and search with comprehensive results
-        provider = Militaria321Provider()
-        search_result = await provider.search(keyword_text, sample_mode=True)
+        # Get all providers in deterministic order (alphabetical)
+        providers = get_all_providers()
         
-        # Apply title-only matching to get accurate count
-        matched_items = []
-        for item in search_result.items:
-            if provider.matches_keyword(item.title, keyword_text):
-                matched_items.append(item)
+        # Build confirmation header
+        setup_text = f"**Suche eingerichtet: „{keyword_text}"**\n\n"
+        setup_text += "Ich melde zunächst den aktuellen Stand und benachrichtige Sie künftig nur bei neuen Angeboten.\n\n"
         
-        matched_total = len(matched_items)
+        # Search each provider and build per-provider blocks
+        all_matched_items = []
+        grand_total = 0
         
-        # Create response message based on count
-        if matched_total > 0:
-            setup_text = f"✅ **Suche eingerichtet: '{keyword_text}'**\n\n📊 **Aktuell gefunden: {matched_total} Treffer**\n\n🔔 **Ich benachrichtige Sie nur bei NEUEN Angeboten.**"
-        else:
-            setup_text = f"✅ **Suche eingerichtet: '{keyword_text}'**\n\n📊 **Aktuell keine Treffer gefunden**\n\n🔔 **Ich überwache weiter und benachrichtige Sie bei neuen Angeboten.**"
+        for provider in providers:
+            try:
+                # Search with comprehensive results
+                search_result = await provider.search(keyword_text, sample_mode=True)
+                
+                # Apply title-only matching to get accurate count
+                matched_items = []
+                for item in search_result.items:
+                    if provider.matches_keyword(item.title, keyword_text):
+                        matched_items.append(item)
+                
+                matched_count = len(matched_items)
+                grand_total += matched_count
+                all_matched_items.extend(matched_items)
+                
+                # Build per-provider block
+                setup_text += f"**Erste Treffer – {provider.name}**\n"
+                
+                if matched_count > 0:
+                    # Show exactly top 3 items
+                    for i, item in enumerate(matched_items[:3], 1):
+                        # Format price
+                        if item.price_value:
+                            price_formatted = provider.format_price_de(
+                                Decimal(str(item.price_value)),
+                                item.price_currency or "EUR"
+                            )
+                        else:
+                            price_formatted = "N/A"
+                        
+                        setup_text += f"{i}) {item.title} – {price_formatted} – {item.url}\n"
+                    
+                    # Add suffix line
+                    if search_result.total_count and search_result.total_count > 3:
+                        more_count = search_result.total_count - 3
+                        setup_text += f"({more_count} weitere Treffer)\n"
+                    elif search_result.has_more:
+                        setup_text += "(weitere Treffer verfügbar)\n"
+                else:
+                    # Zero results
+                    setup_text += "(keine Treffer gefunden)\n"
+                
+                setup_text += "\n"
+                
+                logger.info(f"Provider {provider.name}: {matched_count} matches for '{keyword_text}'")
+                
+            except Exception as e:
+                logger.error(f"Error searching provider {provider.name}: {e}")
+                setup_text += f"**Erste Treffer – {provider.name}**\n"
+                setup_text += "(Fehler beim Abrufen der Ergebnisse)\n\n"
+        
+        # Add global summary if all providers returned zero
+        if grand_total == 0:
+            setup_text += f"Für „{keyword_text}" wurden aktuell keine Treffer gefunden. Ich überwache weiter und benachrichtige Sie bei neuen Angeboten.\n\n"
         
         # Add management info
-        setup_text += f"\n\n⏱️ Frequenz: Alle 60 Sekunden\n🌐 Plattform: Militaria321.com"
+        setup_text += f"⏱️ Frequenz: Alle 60 Sekunden\n"
+        setup_text += f"🌐 Plattformen: {', '.join([p.name for p in providers])}"
         
-        # Seed the seen_set with all current matches to prevent notifications
-        await keyword_service.seed_seen_set(keyword.id, matched_items)
+        # Seed the seen_set with all current matches to prevent immediate notifications
+        await keyword_service.seed_seen_set(keyword.id, all_matched_items)
         
         # Create inline keyboard
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -168,7 +218,7 @@ async def perform_setup_search_with_count(message: Message, keyword, keyword_tex
         # Edit the searching message with results
         await searching_msg.edit_text(setup_text, parse_mode="Markdown", reply_markup=keyboard)
         
-        logger.info(f"Setup search for '{keyword_text}': found {matched_total} current matches, seeded seen_set")
+        logger.info(f"Setup search for '{keyword_text}': {grand_total} total matches across {len(providers)} providers, seeded seen_set")
         
     except Exception as e:
         logger.error(f"Error performing setup search: {e}")
