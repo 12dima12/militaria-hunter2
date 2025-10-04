@@ -4,7 +4,14 @@ Test the fixed militaria321 provider
 """
 import sys
 import asyncio
+import logging
 sys.path.insert(0, '/app/backend')
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 from providers.militaria321 import Militaria321Provider
 
