@@ -550,17 +550,14 @@ class SearchService:
             try:
                 logger.info(f"Starting full baseline seed for '{keyword_text}' on {platform}")
                 
-                # SIMPLER APPROACH: Use the provider's own search() method
-                # It already knows how to find all items correctly
-                # We just need to collect ALL items without applying our matching filter
-                
-                # Fetch with sample_mode to get comprehensive results
-                search_result = await provider.search(keyword_text, sample_mode=True)
-                
-                # Collect ALL items from the search result (no filtering!)
-                all_items = search_result.items
+                # Full crawl: ask provider to return ALL pages (no notifications during seeding)
+                all_items = []
+                page_batches = 0
+                # provider.search will handle pagination internally when crawl_all=True
+                search_result = await provider.search(keyword_text, since_ts=None, sample_mode=False, crawl_all=True)
+                all_items.extend(search_result.items or [])
                 items_collected = len(all_items)
-                pages_scanned = 1  # Provider handles pagination internally
+                pages_scanned = 0  # unknown here; providers will iterate internally
                 
                 logger.info(f"{platform}: collected {items_collected} items using provider search")
                 # Batch add to seen_set using stable keys
