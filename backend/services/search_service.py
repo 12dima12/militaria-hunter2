@@ -108,8 +108,9 @@ class SearchService:
             
             for platform in keyword.platforms:
                 # Skip platforms with baseline errors
-                if platform in keyword.baseline_errors:
-                    logger.debug(f"Skipping {platform} due to baseline error: {keyword.baseline_errors[platform]}")
+                baseline_errors = getattr(keyword, "baseline_errors", {}) or {}
+                if platform in baseline_errors:
+                    logger.debug(f"Skipping {platform} due to baseline error: {baseline_errors[platform]}")
                     continue
                 
                 if platform in self.providers:
