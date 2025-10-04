@@ -88,6 +88,8 @@ class StoredListing(BaseModel):
     last_seen_ts: datetime = Field(default_factory=datetime.utcnow)
     posted_ts: Optional[datetime] = None  # Platform posting/auction start timestamp (UTC)
 
+    end_ts: Optional[datetime] = None     # Auction/listing end timestamp (UTC)
+
     class Config:
         # Ensure (platform, platform_id) uniqueness in MongoDB
         pass
