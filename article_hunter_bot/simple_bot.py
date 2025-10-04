@@ -110,7 +110,7 @@ async def cmd_search(message: Message):
         
         # Format response message
         response_text = (
-            f"Suche eingerichtet: \\"{keyword_text}\\"\\n\\n"
+            f"Suche eingerichtet: \"{keyword_text}\"\\n\\n"
             f"✅ Baseline abgeschlossen – Ich benachrichtige Sie künftig nur bei neuen Angeboten.\\n"
             f"⏱️ Frequenz: Alle 60 Sekunden\\n\\n"
             f"📊 {len(seen_keys)} Angebote als Baseline erfasst"
