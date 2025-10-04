@@ -58,6 +58,8 @@ class Keyword(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     last_checked: Optional[datetime] = None
     first_run_completed: bool = False  # Track if first-run sample was shown
+    since_ts: datetime = Field(default_factory=datetime.utcnow)  # When subscription was created/updated
+    seen_listing_keys: List[str] = Field(default_factory=list)  # Track seen (platform, platform_id) as strings
 
 
 class StoredListing(BaseModel):
