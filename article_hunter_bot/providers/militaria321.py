@@ -101,6 +101,16 @@ class Militaria321Provider(BaseProvider):
                     page_items = self._parse_items_from_page(soup)
                     pages_scanned += 1
                     
+                    if not page_items:
+                        logger.info(f"No items found on page {page_index}, ending crawl")
+                        break
+                    
+                    # Filter items with title-only matching
+                    matched_items = []
+                    for item in page_items:
+                        if self._matches_keyword(item.title, keyword):
+                            matched_items.append(item)
+                    
                     logger.info({
                         "event": "m321_page",
                         "q": keyword,
@@ -109,17 +119,9 @@ class Militaria321Provider(BaseProvider):
                         "items_on_page": len(page_items),
                         "matched_items": len(matched_items),
                         "crawl_all": crawl_all,
+                        "total_matched_so_far": len(all_items) + len(matched_items),
                         "url": str(response.url)
                     })
-                    
-                    if not page_items:
-                        break
-                    
-                    # Filter items with title-only matching
-                    matched_items = []
-                    for item in page_items:
-                        if self._matches_keyword(item.title, keyword):
-                            matched_items.append(item)
                     
                     all_items.extend(matched_items)
                     
