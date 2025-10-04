@@ -134,7 +134,7 @@ async def perform_setup_search_with_count(message: Message, keyword, keyword_tex
         providers = get_all_providers()
         
         # Build confirmation header
-        setup_text = f"**Suche eingerichtet: „{keyword_text}"**\n\n"
+        setup_text = f"**Suche eingerichtet: \"{keyword_text}\"**\n\n"
         setup_text += "Ich melde zunächst den aktuellen Stand und benachrichtige Sie künftig nur bei neuen Angeboten.\n\n"
         
         # Search each provider and build per-provider blocks
