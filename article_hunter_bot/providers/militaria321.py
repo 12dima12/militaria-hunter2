@@ -98,6 +98,8 @@ class Militaria321Provider(BaseProvider):
                     page_items = self._parse_items_from_page(soup)
                     pages_scanned += 1
                     
+                    print(f"DEBUG: Page {page_index} raw items: {len(page_items)}")
+                    
                     logger.info({
                         "event": "m321_page",
                         "q": keyword,
