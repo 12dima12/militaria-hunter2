@@ -118,29 +118,11 @@ class Militaria321Provider(BaseProvider):
                 logger.info(f"Content-Encoding: {response.headers.get('content-encoding', 'none')}")
                 logger.debug(f"Response headers: {dict(response.headers)}")
                 
-                # Try to handle encoding issues
-                try:
-                    # Try to get text with proper encoding
-                    if response.encoding:
-                        content = response.content.decode(response.encoding)
-                    else:
-                        # Try common encodings for German sites
-                        for encoding in ['utf-8', 'iso-8859-1', 'windows-1252']:
-                            try:
-                                content = response.content.decode(encoding)
-                                logger.info(f"Successfully decoded with {encoding}")
-                                break
-                            except UnicodeDecodeError:
-                                continue
-                        else:
-                            # Fallback to response.text
-                            content = response.text
-                            logger.warning("Using response.text as fallback")
-                    
-                    soup = BeautifulSoup(content, 'html.parser')
-                except Exception as e:
-                    logger.error(f"Encoding error: {e}, using response.content directly")
-                    soup = BeautifulSoup(response.content, 'html.parser')
+                # Use response.text which handles encoding automatically
+                content = response.text
+                logger.info(f"Content preview: {content[:200]}...")
+                
+                soup = BeautifulSoup(content, 'html.parser')
                 
                 # Debug: Check for common error messages or empty result indicators
                 error_indicators = [
