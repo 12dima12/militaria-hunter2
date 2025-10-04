@@ -167,6 +167,8 @@ class SearchService:
             from services.keyword_service import KeywordService
             from utils.listing_key import build_listing_key
             keyword_service = KeywordService(self.db)
+            match_mode = "strict"  # current default
+
             
             for listing in matched_listings:
                 # Build stable listing key using centralized utility
