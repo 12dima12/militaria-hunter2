@@ -267,6 +267,60 @@ async def handle_delete_keyword_callback(callback: CallbackQuery):
         logger.error(f"Error handling delete callback: {e}")
         await callback.answer("❌ Fehler beim Löschen.", show_alert=True)
 
+async def cmd_admin_clear(message: Message):
+    """Handle /admin clear and /clear commands - public wipe of stored products"""
+    user = await ensure_user(message.from_user)
+    
+    # Create confirmation keyboard
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Ja, alles löschen", callback_data="admin_clear_confirm"),
+            InlineKeyboardButton(text="❌ Abbrechen", callback_data="admin_clear_cancel")
+        ]
+    ])
+    
+    await message.answer(
+        "⚠️ Achtung: Dies löscht *alle gespeicherten Angebote und Benachrichtigungen* für alle Nutzer. "
+        "Nutzer & Keywords bleiben erhalten. Fortfahren?",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+
+async def admin_clear_confirm(callback: CallbackQuery):
+    """Handle admin clear confirmation"""
+    try:
+        user = await ensure_user(callback.from_user)
+        
+        # Perform the clear operation
+        result = await db_manager.admin_clear_products()
+        
+        # Log the action
+        logger.warning({
+            "event": "admin_clear",
+            "by_user": callback.from_user.id,
+            "scope": ["listings", "keyword_hits", "notifications"],
+            "deleted_counts": result
+        })
+        
+        # Send success message
+        await callback.message.edit_text(
+            f"🧹 Bereinigung abgeschlossen.\n"
+            f"• Listings: {result['listings']}\n"
+            f"• Keyword-Treffer: {result['keyword_hits']}\n"
+            f"• Benachrichtigungen: {result['notifications']}"
+        )
+        await callback.answer()
+        
+    except Exception as e:
+        logger.error(f"Error in admin clear confirm: {e}")
+        await callback.message.edit_text("❌ Fehler bei der Bereinigung aufgetreten.")
+        await callback.answer()
+
+async def admin_clear_cancel(callback: CallbackQuery):
+    """Handle admin clear cancellation"""
+    await callback.message.edit_text("❌ Abgebrochen.")
+    await callback.answer()
+
 async def main():
     """Main bot function"""
     global db_manager, search_service, notification_service, polling_scheduler
