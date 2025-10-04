@@ -37,7 +37,7 @@ def set_services(db_mgr: DatabaseManager, search_svc: SearchService, notif_svc: 
     polling_scheduler = scheduler
 
 
-@router.message(Command("search"))
+def setup_handlers(router):
 async def cmd_search(message: Message):
     """Handle /search <keyword> command
     
