@@ -121,7 +121,7 @@ class DatabaseManager:
                     # No link to listing, cannot recover
                     await self.db.notifications.delete_one({"_id": notif_id})
                     archived += 1
-                    logger.warning(f"Migration: deleted orphan notification {_id} (no listing_id)")
+                    logger.warning(f"Migration: deleted orphan notification {notif_id} (no listing_id)")
                     continue
                 listing = await self.db.listings.find_one({"id": listing_id})
                 if not listing:
