@@ -148,18 +148,35 @@ class DatabaseManager:
                 listing_key = f"{platform}:{platform_id}"
                 await self.db.notifications.update_one({"_id": notif_id}, {"$set": {"listing_key": listing_key}})
                 backfilled += 1
-            # Rebuild the partial unique index again to ensure cleanliness
-            for idx_name in ["user_keyword_key_unique", "idempotency_guard", "user_keyword_listing_unique"]:
-                try:
-                    await self.db.notifications.drop_index(idx_name)
-                except Exception:
-                    pass
-            await self.db.notifications.create_index(
-                [("user_id", 1), ("keyword_id", 1), ("listing_key", 1)],
-                unique=True,
-                name="user_keyword_listing_unique",
-                partialFilterExpression={"listing_key": {"$type": "string"}}
-            )
+            # After backfill, deduplicate any duplicates on (user_id, keyword_id, listing_key)
+            try:
+                pipeline = [
+                    {"$match": {"listing_key": {"$type": "string"}}},
+                    {"$group": {
+                        "_id": {"user_id": "$user_id", "keyword_id": "$keyword_id", "listing_key": "$listing_key"},
+                        "ids": {"$push": "$_id"},
+                        "count": {"$sum": 1}
+                    }},
+                    {"$match": {"count": {"$gt": 1}}}
+                ]
+                duplicates_removed = 0
+                async for grp in self.db.notifications.aggregate(pipeline):
+                    ids = grp.get("ids", [])
+                    if len(ids) > 1:
+                        # Keep the first, remove the rest
+                        to_delete = ids[1:]
+                        if to_delete:
+                            await self.db.notifications.delete_many({"_id": {"$in": to_delete}})
+                            duplicates_removed += len(to_delete)
+                if duplicates_removed:
+                    logger.info({
+                        "event": "migration_dedup",
+                        "collection": "notifications",
+                        "duplicates_removed": duplicates_removed
+                    })
+            except Exception as de:
+                logger.warning(f"Dedup step failed: {de}")
+            
             remaining_null = await self.db.notifications.count_documents({
                 "$or": [
                     {"listing_key": {"$exists": False}},
