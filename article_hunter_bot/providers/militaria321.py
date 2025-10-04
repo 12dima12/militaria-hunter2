@@ -356,28 +356,44 @@ class Militaria321Provider(BaseProvider):
             return "/"
     
     async def fetch_posted_ts_batch(self, items: List[Listing], concurrency: int = 4):
-        """Fetch posted_ts from detail pages for multiple items
+        """Fetch posted_ts and complete missing prices from detail pages
         
-        Only fetches for items that don't already have posted_ts
+        Only fetches for items that don't already have posted_ts or missing price
         """
-        items_to_fetch = [item for item in items if item.posted_ts is None]
+        items_to_fetch = [
+            item for item in items 
+            if item.posted_ts is None or item.price_value is None
+        ]
         
         if not items_to_fetch:
             return
         
-        semaphore = asyncio.Semaphore(concurrency)
+        semaphore = asyncio.Semaphore(min(concurrency, 5))  # Max 5 concurrent requests
+        logger.info(f"Fetching detail pages for {len(items_to_fetch)} items (concurrency={min(concurrency, 5)})")
         
         async def fetch_one(item: Listing):
             async with semaphore:
                 try:
-                    posted_ts = await self._fetch_posted_ts_from_detail_page(item.url)
-                    item.posted_ts = posted_ts
+                    # Add small jitter to avoid overwhelming server
+                    await asyncio.sleep(0.2 + (0.3 * asyncio.get_event_loop().time() % 1))
+                    
+                    detail_data = await self._fetch_detail_page_data(item.url)
+                    
+                    if detail_data.get('posted_ts'):
+                        item.posted_ts = detail_data['posted_ts']
+                    
+                    if detail_data.get('price_value') and item.price_value is None:
+                        item.price_value = detail_data['price_value']
+                        item.price_currency = detail_data.get('price_currency', 'EUR')
+                    
                 except Exception as e:
-                    logger.warning(f"Failed to fetch posted_ts for {item.url}: {e}")
+                    logger.warning(f"Failed to fetch detail data for {item.platform_id}: {e}")
         
         # Process in batches
         tasks = [fetch_one(item) for item in items_to_fetch]
         await asyncio.gather(*tasks, return_exceptions=True)
+        
+        logger.info(f"Detail page enrichment completed for {len(items_to_fetch)} items")
     
     async def _fetch_posted_ts_from_detail_page(self, url: str) -> Optional[datetime]:
         """Fetch posted timestamp from item detail page"""
