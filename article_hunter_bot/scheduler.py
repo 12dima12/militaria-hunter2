@@ -94,8 +94,14 @@ class PollingScheduler:
     async def _poll_keyword(self, keyword_id: str, user_telegram_id: int):
         """Poll a single keyword for new items"""
         try:
+            # Get user by telegram ID first
+            user = await self.db.get_user_by_telegram_id(user_telegram_id)
+            if not user:
+                self.remove_keyword_job(keyword_id)
+                return
+            
             # Get current keyword state
-            keywords = await self.db.get_user_keywords(user_telegram_id, active_only=True)
+            keywords = await self.db.get_user_keywords(user.id, active_only=True)
             keyword = None
             for kw in keywords:
                 if kw.id == keyword_id:
