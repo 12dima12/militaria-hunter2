@@ -24,7 +24,7 @@ class Militaria321Provider(BaseProvider):
         super().__init__("militaria321.com")
         self.base_url = "https://www.militaria321.com"
         self.search_url = f"{self.base_url}/search.cfm"
-        self._tz_berlin = pytz.timezone("Europe/Berlin")
+        self._tz_berlin = ZoneInfo("Europe/Berlin")
     
     def _normalize_text(self, text: str) -> str:
         """Normalize text for matching using Unicode NFKC + casefold + trim"""
