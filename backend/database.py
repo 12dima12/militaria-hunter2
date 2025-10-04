@@ -69,6 +69,14 @@ class DatabaseManager:
                 unique=True,
                 name="idempotency_guard"
             )
+            # Verify the unique index exists
+            try:
+                idxes = await self.db.notifications.index_information()
+                verified = any(name == "idempotency_guard" and info.get("unique") for name, info in idxes.items())
+                logger.info(f"notifications_unique_index_verified={bool(verified)}")
+            except Exception as ve:
+                logger.warning(f"Could not verify notifications unique index: {ve}")
+
             
             logger.info("Database indexes created successfully")
             
