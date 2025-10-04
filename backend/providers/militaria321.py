@@ -180,12 +180,9 @@ class Militaria321Provider(BaseProvider):
                     logger.debug(f"Error parsing single listing: {e}")
                     continue
             
-            # If we still have no listings, create some sample data for testing
-            if not listings and page == 1:
-                logger.info(f"No real listings found for '{original_query}', creating sample data")
-                listings = self._create_sample_listings(original_query)
-                total_count = 15  # Simulate more results available
-                has_more = True
+            # No fabricated data - return empty if no real results found
+            if not listings:
+                logger.info(f"No real listings found for '{original_query}'")
                 
         except Exception as e:
             logger.error(f"Error parsing militaria321 search page: {e}")
