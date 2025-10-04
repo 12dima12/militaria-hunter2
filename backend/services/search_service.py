@@ -466,7 +466,7 @@ class SearchService:
         
         results = {}
         # SEED_HARD_CAP reserved for future hard cap enforcement to avoid runaway pagination
-        total_pages_scanned = 0
+        # total_pages_scanned reserved for future metrics
         
         for platform in providers_filter:
             if platform not in self.providers:
