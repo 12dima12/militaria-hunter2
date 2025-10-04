@@ -465,7 +465,7 @@ class SearchService:
             providers_filter = list(self.providers.keys())
         
         results = {}
-        SEED_HARD_CAP = 5000  # Global page limit to prevent runaway
+        # SEED_HARD_CAP reserved for future hard cap enforcement to avoid runaway pagination
         total_pages_scanned = 0
         
         for platform in providers_filter:
