@@ -337,7 +337,7 @@ async def cmd_pause(message: Message):
 
 @router.message(Command("fortsetzen"))
 async def cmd_resume(message: Message):
-    """Handle /fortsetzen command"""
+    """Handle /fortsetzen command (case-insensitive)"""
     user = await ensure_user(message.from_user)
     
     args = message.text.split(" ", 1)
@@ -353,13 +353,13 @@ async def cmd_resume(message: Message):
         return
     
     if keyword.is_active:
-        await message.answer(f"⚠️ Suchbegriff **'{keyword_text}'** ist bereits aktiv.", parse_mode="Markdown")
+        await message.answer(f"⚠️ Suchbegriff **'{keyword.keyword}'** ist bereits aktiv.", parse_mode="Markdown")
         return
     
     # Resume keyword
     await keyword_service.update_keyword_status(keyword.id, is_active=True)
     
-    await message.answer(f"▶️ Suchbegriff **'{keyword_text}'** wurde fortgesetzt.\n\nDie Suche läuft wieder.", parse_mode="Markdown")
+    await message.answer(f"▶️ Suchbegriff **'{keyword.keyword}'** wurde fortgesetzt.\n\nDie Suche läuft wieder.", parse_mode="Markdown")
 
 
 @router.message(Command("testen"))
