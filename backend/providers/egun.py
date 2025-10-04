@@ -135,7 +135,7 @@ class EgunProvider(BaseProvider):
             query = self.build_query(keyword)
             
             # In sample_mode, fetch more pages for better total_count estimation
-            max_pages = 3 if sample_mode else 1
+            max_pages = 3 if sample_mode and not crawl_all else (1 if not crawl_all else 10_000)
             
             all_listings = []
             total_estimated = 0
