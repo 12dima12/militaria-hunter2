@@ -214,6 +214,8 @@ class SearchService:
                     image_url=listing.image_url,
                     first_seen_ts=listing.first_seen_ts or datetime.utcnow(),
                     last_seen_ts=listing.last_seen_ts or datetime.utcnow(),
+                    end_ts=getattr(listing, 'end_ts', None),
+
                     posted_ts=getattr(listing, 'posted_ts', None),
                 )
                 
