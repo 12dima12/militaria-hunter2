@@ -63,13 +63,15 @@ class Militaria321Provider(BaseProvider):
             page_index = 1
             groupsize = 25  # Default page size
             
-            while True:
+            max_pages = 1 if not crawl_all else 50  # Limit to prevent infinite loops
+                
+            while page_index <= max_pages:
                 # Calculate pagination: startat = (page_index - 1) * groupsize + 1
                 startat = (page_index - 1) * groupsize + 1
                 
                 params = {
                     "q": keyword,
-                    "adv": "0",
+                    "adv": "0", 
                     "searchcat": "1",
                     "groupsize": str(groupsize),
                     "startat": str(startat)
