@@ -277,33 +277,38 @@ async def cmd_list(message: Message):
 
 @router.message(Command("loeschen"))
 async def cmd_delete(message: Message):
-    """Handle /loeschen command - DISABLED BY DESIGN"""
+    """Handle /loeschen command - re-enabled with confirmation"""
     user = await ensure_user(message.from_user)
     
     args = message.text.split(" ", 1)
-    keyword_text = ""
-    if len(args) >= 2:
-        keyword_text = args[1].strip()
+    if len(args) < 2:
+        await message.answer("❌ Bitte geben Sie den zu löschenden Suchbegriff an.\n\nBeispiel: `/loeschen Wehrmacht Helm`", parse_mode="Markdown")
+        return
     
-    # Log the delete attempt for telemetry
-    from models import DeleteAttemptLog
-    try:
-        normalized = keyword_service.normalize_keyword(keyword_text) if keyword_text else ""
-        log_entry = DeleteAttemptLog(
-            user_id=user.id,
-            normalized_keyword=normalized,
-            original_keyword=keyword_text,
-            telegram_message_id=message.message_id
-        )
-        await db_manager.log_delete_attempt(log_entry)
-        logger.info(f"Delete attempt logged: user_id={user.id}, keyword='{keyword_text}'")
-    except Exception as e:
-        logger.error(f"Error logging delete attempt: {e}")
+    keyword_text = args[1].strip()
+    if not keyword_text:
+        await message.answer("❌ Suchbegriff darf nicht leer sein.")
+        return
     
-    # Send fixed German message - no database changes
+    # Find keyword (case-insensitive)
+    keyword = await keyword_service.get_user_keyword(user.id, keyword_text)
+    
+    if not keyword:
+        await message.answer(f"❌ Suchbegriff **'{keyword_text}'** nicht gefunden.", parse_mode="Markdown")
+        return
+    
+    # Show confirmation dialog
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="✅ Ja, löschen", callback_data=f"confirm_delete_{keyword.id}"),
+            InlineKeyboardButton(text="❌ Abbrechen", callback_data="cancel_delete")
+        ]
+    ])
+    
     await message.answer(
-        "❌ **Funktion nicht verfügbar**\n\nDie Löschfunktion ist derzeit nicht verfügbar. Bitte verwenden Sie **/pausieren** oder **/stumm** als Alternative.",
-        parse_mode="Markdown"
+        f"⚠️ **Suchbegriff löschen?**\n\n🔍 Begriff: **{keyword.keyword}**\n\n📊 Status: {'Aktiv' if keyword.is_active else 'Pausiert'}\n⏱️ Frequenz: {keyword.frequency_seconds}s\n\n**Diese Aktion kann nicht rückgängig gemacht werden.**",
+        parse_mode="Markdown",
+        reply_markup=keyboard
     )
 
 
