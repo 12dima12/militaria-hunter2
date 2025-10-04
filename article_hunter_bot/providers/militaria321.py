@@ -85,13 +85,6 @@ class Militaria321Provider(BaseProvider):
                     
                     soup = BeautifulSoup(response.text, 'html.parser')
                     
-                    # Debug: Check content
-                    print(f"DEBUG: Response content length: {len(response.text)}")
-                    print(f"DEBUG: Response URL: {response.url}")
-                    if "auktion" in response.text:
-                        print("DEBUG: 'auktion' found in raw content")
-                    else:
-                        print("DEBUG: 'auktion' NOT found in raw content")
                     
                     # Log page info
                     logger.info({
