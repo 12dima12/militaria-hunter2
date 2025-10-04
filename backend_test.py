@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Comprehensive Backend Testing for Militaria Telegram Bot
-Tests all critical functionality including search, price formatting, keyword matching, and database operations.
+Comprehensive Backend Testing for Militaria Telegram Bot - Phase 1 Focus
+Tests Phase 1 implementation: posted_ts parsing, strict gating, and SearchService end-to-end.
 """
 
 import asyncio
@@ -10,11 +10,13 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from typing import Dict, Any, List
 import pymongo
 from pymongo import MongoClient
+import pytz
+from unittest.mock import Mock, patch
 
 # Add backend to path
 sys.path.insert(0, '/app/backend')
