@@ -18,7 +18,10 @@ async def test_restart_persistence():
     
     # Initialize database connection
     mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
-    db = DatabaseManager(mongo_url, 'auction_bot_database')
+    db_name = os.environ.get('DB_NAME', 'auction_bot_database')
+    db = DatabaseManager()
+    db.mongo_url = mongo_url
+    db.db_name = db_name
     await db.initialize()
     
     print("\n1. CHECKING PERSISTED DATA IN MONGODB")
