@@ -31,7 +31,8 @@ class NotificationService:
         
         Returns True if notification was sent (passed idempotency check)
         """
-        listing_key = f"{item.platform}:{item.platform_id}"
+        # Build canonical listing key
+        listing_key = self._build_canonical_listing_key(item)
         
         # Create notification record for idempotency
         notification = Notification(
@@ -47,7 +48,7 @@ class NotificationService:
                 "event": "decision",
                 "platform": item.platform,
                 "listing_key": listing_key,
-                "decision": "skipped_duplicate",
+                "decision": "notif_duplicate",
                 "reason": "notification_already_sent"
             })
             return False
