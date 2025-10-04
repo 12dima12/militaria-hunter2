@@ -170,6 +170,45 @@ backend:
       - working: "NA"
         agent: "main"
         comment: "Implemented in perform_setup_search_with_count(). Needs end-to-end testing with bot."
+      - working: "NA"
+        agent: "main"
+        comment: "Updated to support per-provider blocks. Shows separate blocks for egun.de and militaria321.com with top 3 items + suffix lines."
+
+  - task: "egun.de provider implementation"
+    implemented: true
+    working: "NA"
+    file: "backend/providers/egun.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Created egun.de provider using discovered search form at /market/index.php. Uses list_items.php with params mode=qry, query=<keyword>. Parser extracts titles from item.php?id=XXXXX links. Price parsing handles EUR format. Title-only matching with umlauts support. Tested: Pistole (8 items), Messer (10 items), nonexistent (0 items)."
+
+  - task: "Multi-provider architecture"
+    implemented: true
+    working: "NA"
+    file: "backend/providers/__init__.py, backend/services/search_service.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Created provider registry with get_all_providers() returning providers in deterministic alphabetical order. Updated SearchService to use all registered providers. Backend logs show: 'Initialized SearchService with providers: ['egun.de', 'militaria321.com']'."
+
+  - task: "Per-provider sample blocks in /suche"
+    implemented: true
+    working: "NA"
+    file: "backend/bot/handlers.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Updated perform_setup_search_with_count() to query all providers, render separate blocks per provider with header 'Erste Treffer – {platform}', show exactly top 3 items with German-formatted prices, append correct suffix lines ((X weitere Treffer), (weitere Treffer verfügbar), or (keine Treffer gefunden)). Seeds baseline per provider to prevent duplicate notifications."
 
 frontend:
   - task: "N/A - Backend bot only"
