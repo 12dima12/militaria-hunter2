@@ -5,7 +5,7 @@ import asyncio
 
 from models import Listing, StoredListing, KeywordHit, Notification, Keyword
 from database import DatabaseManager
-from providers.militaria321 import Militaria321Provider
+from providers import get_all_providers
 from services.notification_service import NotificationService
 
 logger = logging.getLogger(__name__)
@@ -16,9 +16,10 @@ class SearchService:
     
     def __init__(self, db_manager: DatabaseManager):
         self.db = db_manager
-        self.providers = {
-            "militaria321.com": Militaria321Provider()
-        }
+        # Initialize providers from registry (in deterministic order)
+        all_providers = get_all_providers()
+        self.providers = {provider.name: provider for provider in all_providers}
+        logger.info(f"Initialized SearchService with providers: {list(self.providers.keys())}")
         self.notification_service = NotificationService(db_manager)
     
     async def search_keyword(self, keyword: Keyword) -> Dict[str, Any]:
