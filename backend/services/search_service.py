@@ -456,41 +456,21 @@ class SearchService:
             visited_urls = set()  # Loop detection
             
             try:
-                # Build initial search URL
-                query = provider.build_query(keyword_text)
-                
-                # Start with first page
-                current_url = None
-                if platform == "militaria321.com":
-                    params = {'q': query}
-                    from urllib.parse import urlencode
-                    current_url = f"{provider.search_url}?{urlencode(params)}"
-                elif platform == "egun.de":
-                    params = {
-                        'mode': 'qry',
-                        'plusdescr': 'off',
-                        'wheremode': 'and',
-                        'query': query,
-                        'quick': '1'
-                    }
-                    from urllib.parse import urlencode
-                    current_url = f"{provider.search_url}?{urlencode(params)}"
-                else:
-                    # Generic fallback
-                    current_url = provider.search_url
-                
                 logger.info(f"Starting full baseline seed for '{keyword_text}' on {platform}")
                 
-                # Persistent HTTP client
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
-                    'Accept-Encoding': 'br, gzip, deflate',
-                }
+                # SIMPLER APPROACH: Use the provider's own search() method
+                # It already knows how to find all items correctly
+                # We just need to collect ALL items without applying our matching filter
                 
-                async with httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
-                    while current_url and pages_scanned < SEED_HARD_CAP:
+                # Fetch with sample_mode to get comprehensive results
+                search_result = await provider.search(keyword_text, sample_mode=True)
+                
+                # Collect ALL items from the search result (no filtering!)
+                all_items = search_result.items
+                items_collected = len(all_items)
+                pages_scanned = 1  # Provider handles pagination internally
+                
+                logger.info(f"{platform}: collected {items_collected} items using provider search")
                         # Check for loop
                         if current_url in visited_urls:
                             logger.warning(f"Pagination loop detected at {current_url}, stopping")
