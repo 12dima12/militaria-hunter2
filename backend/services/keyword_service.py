@@ -41,8 +41,9 @@ class KeywordService:
         return await self.db.get_user_keywords(user_id)
     
     async def get_user_keyword(self, user_id: str, keyword_text: str) -> Optional[Keyword]:
-        """Get specific user keyword by text"""
-        return await self.db.get_user_keyword_by_text(user_id, keyword_text)
+        """Get specific user keyword by text (case-insensitive)"""
+        normalized = self.normalize_keyword(keyword_text)
+        return await self.db.get_user_keyword_by_normalized(user_id, normalized)
     
     async def get_keyword_by_id(self, keyword_id: str) -> Optional[Keyword]:
         """Get keyword by ID"""
