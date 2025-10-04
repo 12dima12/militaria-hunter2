@@ -20,8 +20,11 @@ class Listing:
     seller_rating: Optional[float] = None
     listing_type: Optional[str] = None    # "auction", "buy_now", etc.
     image_url: Optional[str] = None
+    # When we first saw the item during scraping (not the platform posting time)
     first_seen_ts: datetime = Field(default_factory=lambda: datetime.utcnow())
     last_seen_ts: datetime = Field(default_factory=lambda: datetime.utcnow())
+    # Platform posting/auction start timestamp (parsed from detail page); stored in UTC
+    posted_ts: Optional[datetime] = None
 
 
 @dataclass
@@ -81,6 +84,7 @@ class StoredListing(BaseModel):
     image_url: Optional[str] = None
     first_seen_ts: datetime = Field(default_factory=datetime.utcnow)
     last_seen_ts: datetime = Field(default_factory=datetime.utcnow)
+    posted_ts: Optional[datetime] = None  # Platform posting/auction start timestamp (UTC)
 
     class Config:
         # Ensure (platform, platform_id) uniqueness in MongoDB

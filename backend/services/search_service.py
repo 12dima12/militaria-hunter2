@@ -37,8 +37,8 @@ def is_new_listing(item: Listing, since_ts: datetime, now: datetime, grace_minut
         now = now.replace(tzinfo=timezone.utc)
     
     # If we have a posted timestamp, use it
-    if item.first_seen_ts:  # Using first_seen_ts as proxy for posted_ts
-        posted = item.first_seen_ts
+    posted = getattr(item, 'posted_ts', None)
+    if posted is not None:
         if posted.tzinfo is None:
             posted = posted.replace(tzinfo=timezone.utc)
         return posted >= since_ts
@@ -102,7 +102,8 @@ class SearchService:
                 if platform in self.providers:
                     try:
                         provider = self.providers[platform]
-                        search_result = await provider.search(keyword.keyword, sample_mode=False)
+                        # Pass since_ts to allow provider-level optimizations if any
+                        search_result = await provider.search(keyword.keyword, since_ts=keyword.since_ts, sample_mode=False)
                         all_raw_listings.extend(search_result.items)
                         logger.debug(f"Raw search found {len(search_result.items)} listings for '{keyword.keyword}' on {platform}")
                         
@@ -127,8 +128,35 @@ class SearchService:
                     if provider.matches_keyword(listing.title, keyword.keyword):
                         matched_listings.append(listing)
             
+            # Enrich posted_ts for militaria321 items that are not in seen_set
+            try:
+                m321 = self.providers.get("militaria321.com")
+                if m321:
+                    # Determine which items need enrichment
+                    from utils.listing_key import build_listing_key
+                    to_enrich: List[Listing] = []
+                    for it in matched_listings:
+                        if it.platform != "militaria321.com":
+                            continue
+                        key = None
+                        try:
+                            key = build_listing_key(it.platform, it.url)
+                        except Exception:
+                            # If key extraction fails, still try enrich to help gating
+                            pass
+                        if key and key in keyword.seen_listing_keys:
+                            # Already in baseline; no need to fetch detail now
+                            continue
+                        if getattr(it, 'posted_ts', None) is None:
+                            to_enrich.append(it)
+                    if to_enrich:
+                        logger.info(f"Fetching posted_ts for {len(to_enrich)} militaria321 items")
+                        await m321.fetch_posted_ts_batch(to_enrich, concurrency=4)
+            except Exception as e:
+                logger.warning(f"Error enriching posted_ts for militaria321 items: {e}")
+            
             results["matched_listings"] = len(matched_listings)
-            logger.info(f"Keyword '{keyword.keyword}': {len(all_raw_listings)} raw -> {len(matched_listings)} matched")
+            logger.info(f"Keyword '{keyword.keyword}': {len(all_raw_listings)} raw -&gt; {len(matched_listings)} matched")
             
             # Process each matched listing with all guards
             new_notifications = []
@@ -180,11 +208,12 @@ class SearchService:
                     location=listing.location,
                     condition=listing.condition,
                     seller_name=listing.seller_name,
-                    seller_rating=listing.seller_rating,
+                    seller_rating=getattr(listing, 'seller_rating', None),
                     listing_type=listing.listing_type,
                     image_url=listing.image_url,
                     first_seen_ts=listing.first_seen_ts or datetime.utcnow(),
-                    last_seen_ts=listing.last_seen_ts or datetime.utcnow()
+                    last_seen_ts=listing.last_seen_ts or datetime.utcnow(),
+                    posted_ts=getattr(listing, 'posted_ts', None),
                 )
                 
                 await self.db.create_or_update_listing(stored_listing)
@@ -216,7 +245,7 @@ class SearchService:
                 # Comprehensive per-item log
                 logger.info(f"Item processed: key={listing_key}, in_seen_before={in_seen_set_before}, "
                            f"notif_insert_ok={notif_insert_ok}, added_to_seen={added_to_seen}, "
-                           f"final_action={final_action}")
+                           f"final_action={final_action}, posted_ts={getattr(listing, 'posted_ts', None)}, since_ts={keyword.since_ts}")
             
             results["new_notifications"] = len(new_notifications)
             
@@ -230,6 +259,8 @@ class SearchService:
                 await self._send_notifications(keyword, new_notifications)
             
             # Update last checked timestamp
+            from services.keyword_service import KeywordService
+            keyword_service = KeywordService(self.db)
             await keyword_service.update_last_checked(keyword.id)
             
         except Exception as e:
@@ -290,7 +321,7 @@ class SearchService:
                         results["errors"].extend(result.get("errors", []))
                 
                 # Small delay between batches
-                if i + batch_size < len(keywords):
+                if i + batch_size &lt; len(keywords):
                     await asyncio.sleep(2)
             
             results["end_time"] = datetime.utcnow()
@@ -398,7 +429,7 @@ class SearchService:
                     "matched_items": matched_items[:3],  # Top 3 for display
                     "all_items": matched_items if seed_baseline else [],  # All items if seeding
                     "total_count": search_result.total_count,
-                    "has_more": search_result.has_more or len(matched_items) > 3,
+                    "has_more": search_result.has_more or len(matched_items) &gt; 3,
                     "error": None,
                     "provider": provider  # Include provider for price formatting
                 }
@@ -417,7 +448,7 @@ class SearchService:
                 }
         
         return results
-
+    
     async def full_baseline_seed(self, keyword_text: str, keyword_id: str, user_id: str, providers_filter: List[str] = None) -> Dict[str, Dict[str, Any]]:
         """
         Perform full baseline seeding across ALL pages for each provider.

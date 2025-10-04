@@ -8,6 +8,8 @@ from urllib.parse import urljoin, quote_plus
 import re
 import unicodedata
 from decimal import Decimal, InvalidOperation
+import random
+import pytz
 
 from .base import BaseProvider
 from models import Listing, SearchResult
@@ -22,6 +24,7 @@ class Militaria321Provider(BaseProvider):
         super().__init__("militaria321.com")
         self.base_url = "https://www.militaria321.com"
         self.search_url = f"{self.base_url}/search.cfm"
+        self._tz_berlin = pytz.timezone("Europe/Berlin")
     
     def _normalize_text(self, text: str) -> str:
         """Normalize text for matching using Unicode NFKC + casefold + trim"""
@@ -40,7 +43,7 @@ class Militaria321Provider(BaseProvider):
         # Check each token individually with context awareness
         for token in tokens:
             # Find all occurrences of the token
-            pattern = rf"(?<!\w){re.escape(token)}(?!\w)"
+            pattern = rf"(?&lt;!\w){re.escape(token)}(?!\w)"
             matches = list(re.finditer(pattern, title_normalized, re.UNICODE))
             
             if not matches:
@@ -148,7 +151,7 @@ class Militaria321Provider(BaseProvider):
         decimal_part = parts[1]
         
         # Add thousands separators (dots) every 3 digits from right
-        if len(integer_part) > 3:
+        if len(integer_part) &gt; 3:
             # Reverse, add dots every 3 chars, reverse back
             reversed_int = integer_part[::-1]
             with_dots = '.'.join(reversed_int[i:i+3] for i in range(0, len(reversed_int), 3))
@@ -170,32 +173,41 @@ class Militaria321Provider(BaseProvider):
             total_estimated = 0
             has_more = False
             
-            for page in range(1, max_pages + 1):
-                page_listings, page_total, page_has_more = await self._fetch_page(query, page)
-                
-                if page_listings:
-                    all_listings.extend(page_listings)
-                    
-                    # Update total estimate from first page that returns results
-                    if page_total and total_estimated == 0:
-                        total_estimated = page_total
-                    
-                    # If this page has more, overall result has more
-                    if page_has_more:
-                        has_more = True
-                else:
-                    # No results on this page, stop pagination
-                    break
-                
-                # Small delay between pages to be respectful
-                if page < max_pages:
-                    await asyncio.sleep(1)
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Accept-Encoding': 'gzip, deflate',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'same-origin',
+                'Cache-Control': 'no-cache',
+            }
             
-            # Filter by timestamp if provided
-            if since_ts and all_listings:
-                # Since militaria321 doesn't provide timestamps, we can't filter reliably
-                # In production, you'd need to track listings in database and compare
-                pass
+            async with httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
+                for page in range(1, max_pages + 1):
+                    page_listings, page_total, page_has_more, soup, page_url = await self._fetch_page(client, query, page)
+                    
+                    if page_listings:
+                        all_listings.extend(page_listings)
+                        
+                        # Update total estimate from first page that returns results
+                        if page_total and total_estimated == 0:
+                            total_estimated = page_total
+                        
+                        # If this page has more, overall result has more
+                        if page_has_more:
+                            has_more = True
+                    else:
+                        # No results on this page, stop pagination
+                        break
+                    
+                    # Small delay between pages to be respectful
+                    if page &lt; max_pages:
+                        await asyncio.sleep(1)
             
             # Deduplicate listings by platform_id
             seen_ids = set()
@@ -207,99 +219,74 @@ class Militaria321Provider(BaseProvider):
             
             return SearchResult(
                 items=unique_listings,
-                total_count=total_estimated if total_estimated > 0 else None,
-                has_more=has_more or len(unique_listings) >= 20  # Assume more if we got many results
+                total_count=total_estimated if total_estimated &gt; 0 else None,
+                has_more=has_more or len(unique_listings) &gt;= 20  # Assume more if we got many results
             )
             
         except Exception as e:
             logger.error(f"Error searching militaria321 for '{keyword}': {e}")
             return SearchResult(items=[], total_count=0, has_more=False)
     
-    async def _fetch_page(self, query: str, page: int = 1) -> tuple[List[Listing], Optional[int], bool]:
+    async def _fetch_page(self, client: httpx.AsyncClient, query: str, page: int = 1) -> tuple[List[Listing], Optional[int], bool, Optional[BeautifulSoup], str]:
         """Fetch a single page of listings"""
         listings = []
         total_count = None
         has_more = False
         
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-            'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Accept-Encoding': 'gzip, deflate',
-            'DNT': '1',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'same-origin',
-            'Cache-Control': 'no-cache',
-        }
-        
         try:
-            async with httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
-                # Build correct search parameters - militaria321 uses 'q' parameter
-                params = {'q': query}
-                if page > 1:
-                    params['startat'] = ((page - 1) * 50) + 1  # Pagination offset
+            # Build correct search parameters - militaria321 uses 'q' parameter
+            params = {'q': query}
+            if page &gt; 1:
+                params['startat'] = ((page - 1) * 50) + 1  # Pagination offset
+            
+            logger.info(f"GET search to militaria321 page {page} with params: {params}")
+            response = await client.get(self.search_url, params=params)
+            response.raise_for_status()
+            
+            content = response.text
+            soup = BeautifulSoup(content, 'html.parser')
+            
+            # Verify the response actually reflects our query
+            page_text = soup.get_text().lower()
+            query_normalized = self._normalize_text(query).lower()
+            
+            # Check if the search was actually performed
+            query_reflected = query_normalized in page_text
+            
+            if not query_reflected and page == 1:
+                logger.warning(f"Query '{query}' (normalized: '{query_normalized}') not reflected in search results page")
                 
-                logger.info(f"GET search to militaria321 page {page} with params: {params}")
-                response = await client.get(self.search_url, params=params)
-                response.raise_for_status()
+                # Check for empty search indicators
+                empty_indicators = ['keine treffer', 'keine ergebnisse', 'no results found']
+                for indicator in empty_indicators:
+                    if indicator in page_text:
+                        logger.info(f"Found empty result indicator: '{indicator}'")
+                        return [], 0, False, soup, str(response.url)
                 
-                # Debug: Log response details
-                logger.info(f"Response status: {response.status_code}, Content length: {len(response.content)}")
-                logger.info(f"Response encoding: {response.encoding}")
-                logger.info(f"Content-Type: {response.headers.get('content-type', 'unknown')}")
-                logger.info(f"Content-Encoding: {response.headers.get('content-encoding', 'none')}")
-                logger.debug(f"Response headers: {dict(response.headers)}")
-                
-                # Use response.text which handles encoding automatically
-                content = response.text
-                logger.info(f"Content preview: {content[:200]}...")
-                
-                soup = BeautifulSoup(content, 'html.parser')
-                
-                # Verify the response actually reflects our query
-                page_text = soup.get_text().lower()
-                query_normalized = self._normalize_text(query).lower()
-                
-                # Check if the search was actually performed
-                query_reflected = query_normalized in page_text
-                
-                if not query_reflected and page == 1:
-                    logger.warning(f"Query '{query}' (normalized: '{query_normalized}') not reflected in search results page")
-                    
-                    # Check for empty search indicators
-                    empty_indicators = ['keine treffer', 'keine ergebnisse', 'no results found']
-                    for indicator in empty_indicators:
-                        if indicator in page_text:
-                            logger.info(f"Found empty result indicator: '{indicator}'")
-                            return [], 0, False
-                    
-                    # If query not reflected and no results, likely failed search
-                    logger.warning("Query not reflected and no empty result indicators - treating as failed search")
-                    return [], 0, False
-                
-                logger.info(f"Query '{query}' successfully reflected in search results")
-                
-                # Log auction links found on page for debugging
-                auction_links = soup.find_all('a', href=lambda x: x and 'auktion' in str(x).lower())
-                logger.info(f"Found {len(auction_links)} auction-related links on page")
-                
-                listings, total_count, has_more = self._parse_search_page(soup, query, page)
-                
-                logger.info(f"Page {page}: Found {len(listings)} listings")
-                return listings, total_count, has_more
-                
+                # If query not reflected and no results, likely failed search
+                logger.warning("Query not reflected and no empty result indicators - treating as failed search")
+                return [], 0, False, soup, str(response.url)
+            
+            logger.info(f"Query '{query}' successfully reflected in search results")
+            
+            # Log auction links found on page for debugging
+            auction_links = soup.find_all('a', href=lambda x: x and 'auktion' in str(x).lower())
+            logger.info(f"Found {len(auction_links)} auction-related links on page")
+            
+            listings, total_count, has_more = self._parse_search_page(soup, query, page)
+            
+            logger.info(f"Page {page}: Found {len(listings)} listings")
+            return listings, total_count, has_more, soup, str(response.url)
+            
         except httpx.RequestError as e:
             logger.error(f"Request error fetching militaria321 page {page}: {e}")
-            return [], None, False
+            return [], None, False, None, self.search_url
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error fetching militaria321 page {page}: {e.response.status_code}")
-            return [], None, False
+            return [], None, False, None, self.search_url
         except Exception as e:
             logger.error(f"Unexpected error fetching militaria321 page {page}: {e}")
-            return [], None, False
+            return [], None, False, None, self.search_url
     
     def _parse_search_page(self, soup: BeautifulSoup, original_query: str, page: int) -> tuple[List[Listing], Optional[int], bool]:
         """Parse listings from militaria321.com search results page"""
@@ -315,13 +302,12 @@ class Militaria321Provider(BaseProvider):
             has_more = self._has_next_page(soup)
             
             # Find auction links - militaria321 uses various auction URL patterns
-            # Try different patterns
             auction_links = soup.find_all('a', href=lambda x: x and 'auktion' in str(x).lower())
             
             logger.info(f"Found {len(auction_links)} auction links on page")
             
             # Debug: log some hrefs to see the pattern
-            if auction_links and len(auction_links) > 0:
+            if auction_links and len(auction_links) &gt; 0:
                 logger.debug(f"Sample auction hrefs: {[a.get('href') for a in auction_links[:3]]}")
             
             if not auction_links:
@@ -330,7 +316,7 @@ class Militaria321Provider(BaseProvider):
                 return [], total_count, has_more
             
             # Build unique listing containers from auction links
-            # Use the parent <tr> row as the container since it has all the details
+            # Use the parent &lt;tr&gt; row as the container since it has all the details
             seen_containers = set()
             listing_containers = []
             
@@ -365,7 +351,7 @@ class Militaria321Provider(BaseProvider):
                     # Apply strict keyword matching on title only
                     if self.matches_keyword(listing.title, original_query):
                         listings.append(listing)
-                        logger.info(f"✓ Matched #{i+1}: '{listing.title}' -> ID:{listing.platform_id}")
+                        logger.info(f"✓ Matched #{i+1}: '{listing.title}' -&gt; ID:{listing.platform_id}")
                     else:
                         logger.debug(f"✗ Container {i+1}: Title '{listing.title}' doesn't match query '{original_query}'")
                 except Exception as e:
@@ -505,7 +491,7 @@ class Militaria321Provider(BaseProvider):
             
             # Extract title from link text
             title = auction_link.get_text().strip()
-            if not title or len(title) < 3:
+            if not title or len(title) &lt; 3:
                 logger.debug(f"Title too short or empty: '{title}'")
                 return None
             
@@ -548,7 +534,8 @@ class Militaria321Provider(BaseProvider):
                 seller_name=seller_name,
                 image_url=image_url,
                 first_seen_ts=datetime.utcnow(),
-                last_seen_ts=datetime.utcnow()
+                last_seen_ts=datetime.utcnow(),
+                posted_ts=None,
             )
             
         except Exception as e:
@@ -585,7 +572,7 @@ class Militaria321Provider(BaseProvider):
         if price_text:
             # Use the robust price parsing
             decimal_value, currency = self.parse_price(price_text)
-            logger.debug(f"Price parsing: '{price_text}' -> {decimal_value} {currency}")
+            logger.debug(f"Price parsing: '{price_text}' -&gt; {decimal_value} {currency}")
             
             # Convert Decimal back to float for storage (maintaining precision)
             float_value = float(decimal_value) if decimal_value else None
@@ -659,3 +646,82 @@ class Militaria321Provider(BaseProvider):
         """Get next page URL for pagination"""
         from providers.pagination_utils import get_next_page_url_militaria321
         return get_next_page_url_militaria321(current_url, soup)
+
+    # -------------------- posted_ts support --------------------
+    def _parse_posted_ts_from_text(self, text: str) -> Optional[datetime]:
+        """Parse German date like '04.10.2025 13:21 Uhr' from text and return UTC-aware datetime."""
+        try:
+            m = re.search(r'(?:Auktionsbeginn|Eingestellt)\s*:?[\s\xa0]*?(\d{1,2}\.\d{1,2}\.\d{4})\s+(\d{1,2}:\d{2})\s*Uhr', text, re.IGNORECASE)
+            if not m:
+                # Try generic dd.mm.yyyy HH:MM Uhr without label
+                m = re.search(r'(\d{1,2}\.\d{1,2}\.\d{4})\s+(\d{1,2}:\d{2})\s*Uhr', text)
+            if not m:
+                return None
+            date_part = m.group(1)
+            time_part = m.group(2)
+            dt_naive = datetime.strptime(f"{date_part} {time_part}", "%d.%m.%Y %H:%M")
+            dt_local = self._tz_berlin.localize(dt_naive)
+            dt_utc = dt_local.astimezone(pytz.utc)
+            return dt_utc
+        except Exception:
+            return None
+
+    def _parse_posted_ts_from_soup(self, soup: BeautifulSoup) -> Optional[datetime]:
+        # Scan common containers for the labels
+        try:
+            # Look in definition lists, tables, and generic text
+            # 1) dt/dd pattern
+            for dt in soup.find_all(['dt', 'th']):
+                label = dt.get_text(strip=True)
+                if re.search(r'(Auktionsbeginn|Eingestellt)', label, re.IGNORECASE):
+                    # corresponding dd/td
+                    sib = dt.find_next('dd') or dt.find_next('td')
+                    if sib:
+                        ts = self._parse_posted_ts_from_text(sib.get_text(" ", strip=True))
+                        if ts:
+                            return ts
+            # 2) table rows
+            for tr in soup.find_all('tr'):
+                cells = tr.find_all(['td', 'th'])
+                if len(cells) &gt;= 2:
+                    label = cells[0].get_text(" ", strip=True)
+                    if re.search(r'(Auktionsbeginn|Eingestellt)', label, re.IGNORECASE):
+                        ts = self._parse_posted_ts_from_text(cells[1].get_text(" ", strip=True))
+                        if ts:
+                            return ts
+            # 3) fallback: full text search
+            full = soup.get_text(" ", strip=True)
+            return self._parse_posted_ts_from_text(full)
+        except Exception:
+            return None
+
+    async def fetch_posted_ts_batch(self, listings: List[Listing], concurrency: int = 4) -> None:
+        """Fetch and set posted_ts for each listing (in place). Skips those already having posted_ts."""
+        # Filter targets
+        targets = [it for it in listings if it.platform == self.name and not getattr(it, 'posted_ts', None)]
+        if not targets:
+            return
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+        }
+        sem = asyncio.Semaphore(concurrency)
+
+        async def worker(item: Listing, client: httpx.AsyncClient):
+            async with sem:
+                try:
+                    await asyncio.sleep(random.uniform(0.2, 0.6))
+                    resp = await client.get(item.url, timeout=30.0)
+                    resp.raise_for_status()
+                    soup = BeautifulSoup(resp.text, 'html.parser')
+                    ts = self._parse_posted_ts_from_soup(soup)
+                    item.posted_ts = ts
+                    logger.info(f"posted_ts for {item.platform_id}: {ts}")
+                except Exception as e:
+                    logger.debug(f"Failed to fetch posted_ts for {item.url}: {e}")
+
+        async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
+            await asyncio.gather(*(worker(it, client) for it in targets))
