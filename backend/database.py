@@ -105,17 +105,38 @@ class DatabaseManager:
         keywords_cursor = self.db.keywords.find(query).sort("created_at", -1)
         keywords = await keywords_cursor.to_list(length=None)
         
-        # Migrate keywords without normalized_keyword field
+        # Migrate keywords to add missing fields
         migrated_keywords = []
         for keyword_doc in keywords:
+            needs_update = False
+            update_fields = {}
+            
+            # Add normalized_keyword if missing
             if "normalized_keyword" not in keyword_doc or keyword_doc["normalized_keyword"] is None:
-                # Add normalized_keyword during migration
                 normalized = keyword_doc["keyword"].strip().casefold()
+                update_fields["normalized_keyword"] = normalized
+                keyword_doc["normalized_keyword"] = normalized
+                needs_update = True
+            
+            # Add since_ts if missing (use created_at or current time)
+            if "since_ts" not in keyword_doc:
+                since_ts = keyword_doc.get("created_at", datetime.utcnow())
+                update_fields["since_ts"] = since_ts
+                keyword_doc["since_ts"] = since_ts
+                needs_update = True
+            
+            # Add seen_listing_keys if missing
+            if "seen_listing_keys" not in keyword_doc:
+                update_fields["seen_listing_keys"] = []
+                keyword_doc["seen_listing_keys"] = []
+                needs_update = True
+            
+            # Apply updates if needed
+            if needs_update:
                 await self.db.keywords.update_one(
                     {"_id": keyword_doc["_id"]},
-                    {"$set": {"normalized_keyword": normalized}}
+                    {"$set": update_fields}
                 )
-                keyword_doc["normalized_keyword"] = normalized
             
             migrated_keywords.append(Keyword(**keyword_doc))
         
