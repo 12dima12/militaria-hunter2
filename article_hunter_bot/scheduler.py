@@ -20,8 +20,8 @@ class PollingScheduler:
     def __init__(
         self, 
         db_manager: DatabaseManager, 
-        search_service: SearchService,
-        notification_service: NotificationService
+        search_service: Optional[SearchService] = None,
+        notification_service: Optional[NotificationService] = None
     ):
         self.db = db_manager
         self.search_service = search_service
