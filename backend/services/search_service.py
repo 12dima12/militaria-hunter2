@@ -13,6 +13,43 @@ from services.notification_service import NotificationService
 logger = logging.getLogger(__name__)
 
 
+def is_new_listing(item: Listing, since_ts: datetime, now: datetime, grace_minutes: int = 60) -> bool:
+    """
+    Determine if a listing is new enough to trigger a notification.
+    
+    Rules:
+    1. If item has posted_ts: must be >= since_ts
+    2. If no posted_ts: only allow within grace window after subscription
+    
+    Args:
+        item: The listing
+        since_ts: Subscription start time (UTC aware)
+        now: Current time (UTC aware)
+        grace_minutes: Grace period for items without posted_ts
+    
+    Returns:
+        True if item should trigger notification
+    """
+    # Ensure since_ts and now are timezone-aware
+    if since_ts.tzinfo is None:
+        since_ts = since_ts.replace(tzinfo=timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    
+    # If we have a posted timestamp, use it
+    if item.first_seen_ts:  # Using first_seen_ts as proxy for posted_ts
+        posted = item.first_seen_ts
+        if posted.tzinfo is None:
+            posted = posted.replace(tzinfo=timezone.utc)
+        return posted >= since_ts
+    
+    # No posted timestamp - only allow within grace window
+    grace_seconds = grace_minutes * 60
+    time_since_subscription = (now - since_ts).total_seconds()
+    
+    return time_since_subscription <= grace_seconds
+
+
 class SearchService:
     """Service for searching across auction platforms"""
     
