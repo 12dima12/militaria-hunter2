@@ -95,3 +95,44 @@ class KeywordService:
     async def update_keyword_first_run(self, keyword_id: str, completed: bool = True) -> bool:
         """Mark keyword first run as completed"""
         return await self.db.update_keyword(keyword_id, {"first_run_completed": completed})
+    
+    def make_listing_key(self, platform: str, platform_id: str) -> str:
+        """Create a unique listing key from platform and platform_id"""
+        return f"{platform}:{platform_id}"
+    
+    async def reset_keyword_subscription(self, keyword_id: str) -> bool:
+        """Reset keyword subscription with new since_ts and empty seen_set"""
+        update_data = {
+            "since_ts": datetime.utcnow(),
+            "seen_listing_keys": [],
+            "first_run_completed": True
+        }
+        return await self.db.update_keyword(keyword_id, update_data)
+    
+    async def seed_seen_set(self, keyword_id: str, listings: list) -> bool:
+        """Add current listings to seen_set to establish baseline"""
+        seen_keys = []
+        for listing in listings:
+            listing_key = self.make_listing_key(listing.platform, listing.platform_id)
+            seen_keys.append(listing_key)
+        
+        update_data = {"seen_listing_keys": seen_keys}
+        return await self.db.update_keyword(keyword_id, update_data)
+    
+    async def add_to_seen_set(self, keyword_id: str, platform: str, platform_id: str) -> bool:
+        """Add a single listing to the seen set"""
+        keyword = await self.get_keyword_by_id(keyword_id)
+        if not keyword:
+            return False
+        
+        listing_key = self.make_listing_key(platform, platform_id)
+        if listing_key not in keyword.seen_listing_keys:
+            updated_seen = keyword.seen_listing_keys + [listing_key]
+            return await self.db.update_keyword(keyword_id, {"seen_listing_keys": updated_seen})
+        
+        return True  # Already in seen set
+    
+    def is_listing_seen(self, keyword: Keyword, platform: str, platform_id: str) -> bool:
+        """Check if a listing has been seen before"""
+        listing_key = self.make_listing_key(platform, platform_id)
+        return listing_key in keyword.seen_listing_keys
