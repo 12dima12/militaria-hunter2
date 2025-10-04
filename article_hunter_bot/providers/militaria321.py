@@ -136,25 +136,20 @@ class Militaria321Provider(BaseProvider):
                             logger.info(f"Early stop: all items on page {page_index} are older than since_ts")
                             break
                     
-                    # Extract total count from first page
+                    # Extract total count from first page (informational only)
                     if page_index == 1:
                         total_count = self._extract_total_count(soup, len(page_items))
+                        logger.info(f"Estimated total count: {total_count}")
                     
                     # Check if we should continue to next page
                     if not crawl_all:
                         # For polling, only check first page
                         break
                     
-                    # For crawl_all, continue based on pagination
-                    # Continue if we got a full page of raw items (before filtering)
-                    if len(page_items) < groupsize:
-                        # Last page reached
+                    # For crawl_all, continue until we get few items (site-dependent)
+                    # Since this site returns ~50 items per page, continue if we got significant results
+                    if len(page_items) < 10:  # Less than 10 items indicates last page
                         logger.info(f"Reached last page {page_index} with {len(page_items)} items")
-                        break
-                    
-                    # Also check if we have more pages based on total count
-                    if total_count and (page_index * groupsize) >= total_count:
-                        logger.info(f"Reached estimated end based on total count {total_count}")
                         break
                     
                     # Polite delay between pages
