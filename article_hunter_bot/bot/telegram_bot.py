@@ -308,6 +308,7 @@ class TelegramBotManager:
         self.notification_service = NotificationService(self.db, self.bot)
         
         # Services will be set by main application with scheduler
+        # Note: set_services() will be called from main.py after initialization
         
         # Create dispatcher
         self.dp = Dispatcher()
