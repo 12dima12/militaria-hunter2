@@ -211,6 +211,40 @@ backend:
         comment: "Updated perform_setup_search_with_count() to query all providers, render separate blocks per provider with header 'Erste Treffer – {platform}', show exactly top 3 items with German-formatted prices, append correct suffix lines ((X weitere Treffer), (weitere Treffer verfügbar), or (keine Treffer gefunden)). Seeds baseline per provider to prevent duplicate notifications."
 
   - task: "Phase 1: Models posted_ts support"
+  - task: "Phase 1: Models posted_ts support"
+    implemented: true
+    working: true
+    file: "backend/models.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✓ VERIFIED: Listing and StoredListing include optional posted_ts; UTC-aware handling works; no serialization issues detected in tests."
+  - task: "Phase 1: Militaria321 posted_ts parsing and batch fetch"
+    implemented: true
+    working: true
+    file: "backend/providers/militaria321.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✓ VERIFIED: German date parsing from detail pages works; fetch_posted_ts_batch runs concurrently (cap=4) and sets posted_ts for items with valid dates."
+  - task: "Phase 1: Strict new-item gate in SearchService"
+    implemented: true
+    working: true
+    file: "backend/services/search_service.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✓ VERIFIED: is_new_listing gating logic passes all cases (older/newer/missing+grace). Enrichment step for militaria321 runs before gating."
+
     implemented: true
     working: true
     file: "backend/models.py"
