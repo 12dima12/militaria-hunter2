@@ -2,6 +2,10 @@ import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 from database import DatabaseManager
 from bot.telegram_bot import TelegramBotManager
