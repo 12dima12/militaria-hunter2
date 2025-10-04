@@ -101,3 +101,100 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: |
+  Build a Telegram bot that searches militaria321.com for new listings and sends push notifications.
+  Critical issue: Bot was returning 0 results for "Brieföffner" despite 40+ actual results on site.
+  Fix: Correct search parameter from 'wort' to 'q', improved HTML parsing to extract titles/prices correctly.
+
+backend:
+  - task: "Fix militaria321 provider search parameter"
+    implemented: true
+    working: true
+    file: "backend/providers/militaria321.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Fixed search parameter from 'wort' to 'q', updated parsing to extract titles from auction links correctly. Tested with Brieföffner (25 results), Kappmesser (8 results), Helm (73 results), uhr (19 results with no timestamp false positives)."
+
+  - task: "Price parsing and German formatting"
+    implemented: true
+    working: true
+    file: "backend/providers/militaria321.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "parse_price() and format_price_de() methods working correctly. Tested: '249,00 €', '20,00 €', '5,00 €' all formatted properly."
+
+  - task: "Title-only keyword matching (no timestamp false positives)"
+    implemented: true
+    working: true
+    file: "backend/providers/militaria321.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "matches_keyword() correctly filters timestamps. Keyword 'uhr' returns 19 items with 'Uhr' in title (e.g. 'Turm mit Uhr') but not timestamps like '07:39 Uhr'."
+
+  - task: "/loeschen command with confirmation"
+    implemented: true
+    working: "NA"
+    file: "backend/bot/handlers.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Re-enabled with inline confirmation buttons. Needs end-to-end testing with bot."
+
+  - task: "First-run sample with count reporting"
+    implemented: true
+    working: "NA"
+    file: "backend/bot/handlers.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Implemented in perform_setup_search_with_count(). Needs end-to-end testing with bot."
+
+frontend:
+  - task: "N/A - Backend bot only"
+    implemented: false
+    working: "NA"
+    file: "N/A"
+    stuck_count: 0
+    priority: "low"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "This project is backend Telegram bot only, no frontend."
+
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 1
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "Provider search and parsing fixes"
+    - "End-to-end bot testing with Telegram"
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: "Fixed militaria321 search parameter and parsing. Provider now correctly retrieves and parses listings with German price formatting. Ready for end-to-end bot testing."
