@@ -395,8 +395,8 @@ class Militaria321Provider(BaseProvider):
         
         logger.info(f"Detail page enrichment completed for {len(items_to_fetch)} items")
     
-    async def _fetch_posted_ts_from_detail_page(self, url: str) -> Optional[datetime]:
-        """Fetch posted timestamp from item detail page"""
+    async def _fetch_detail_page_data(self, url: str) -> dict:
+        """Fetch posted timestamp and price from item detail page"""
         async with httpx.AsyncClient(headers=self.headers, timeout=30.0) as client:
             try:
                 response = await client.get(url)
@@ -406,11 +406,25 @@ class Militaria321Provider(BaseProvider):
                     response.encoding = "utf-8"
                 
                 soup = BeautifulSoup(response.text, 'html.parser')
-                return self._parse_posted_ts_from_html(soup)
+                
+                result = {}
+                
+                # Extract posted timestamp
+                posted_ts = self._parse_posted_ts_from_html(soup)
+                if posted_ts:
+                    result['posted_ts'] = posted_ts
+                
+                # Extract price if missing
+                price_value, price_currency = self._parse_price_from_detail_page(soup)
+                if price_value:
+                    result['price_value'] = price_value
+                    result['price_currency'] = price_currency
+                
+                return result
                 
             except Exception as e:
                 logger.warning(f"Error fetching detail page {url}: {e}")
-                return None
+                return {}
     
     def _parse_posted_ts_from_html(self, soup: BeautifulSoup) -> Optional[datetime]:
         """Parse posted timestamp from German HTML
