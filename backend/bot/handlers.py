@@ -122,83 +122,52 @@ async def cmd_search(message: Message):
 
 
 async def perform_setup_search_with_count(message: Message, keyword, keyword_text: str, searching_msg: Message):
-    """Perform setup search across all providers, render per-provider blocks, and seed seen_set"""
+    """Perform setup search across all providers, show COUNT-ONLY, and seed seen_set"""
     try:
-        from providers import get_all_providers
-        from decimal import Decimal
+        from services.search_service import SearchService
         
         # Reset keyword subscription
         await keyword_service.reset_keyword_subscription(keyword.id)
         
-        # Get all providers in deterministic order (alphabetical)
-        providers = get_all_providers()
+        # Get counts per provider
+        search_service = SearchService(db_manager)
+        counts_per_provider = await search_service.get_counts_per_provider(keyword_text)
         
         # Build confirmation header
         setup_text = f"**Suche eingerichtet: \"{keyword_text}\"**\n\n"
-        setup_text += "Ich melde zunächst den aktuellen Stand und benachrichtige Sie künftig nur bei neuen Angeboten.\n\n"
+        setup_text += "Ich melde den aktuellen Stand pro Plattform und benachrichtige Sie künftig nur bei neuen Angeboten.\n\n"
         
-        # Search each provider and build per-provider blocks
+        # Add count-only lines per provider (deterministic alphabetical order)
         all_matched_items = []
-        grand_total = 0
         
-        for provider in providers:
-            try:
-                # Search with comprehensive results
-                search_result = await provider.search(keyword_text, sample_mode=True)
-                
-                # Apply title-only matching to get accurate count
-                matched_items = []
-                for item in search_result.items:
-                    if provider.matches_keyword(item.title, keyword_text):
-                        matched_items.append(item)
-                
-                matched_count = len(matched_items)
-                grand_total += matched_count
-                all_matched_items.extend(matched_items)
-                
-                # Build per-provider block
-                setup_text += f"**Erste Treffer – {provider.name}**\n"
-                
-                if matched_count > 0:
-                    # Show exactly top 3 items
-                    for i, item in enumerate(matched_items[:3], 1):
-                        # Format price
-                        if item.price_value:
-                            price_formatted = provider.format_price_de(
-                                Decimal(str(item.price_value)),
-                                item.price_currency or "EUR"
-                            )
-                        else:
-                            price_formatted = "N/A"
-                        
-                        setup_text += f"{i}) {item.title} – {price_formatted} – {item.url}\n"
-                    
-                    # Add suffix line
-                    if search_result.total_count and search_result.total_count > 3:
-                        more_count = search_result.total_count - 3
-                        setup_text += f"({more_count} weitere Treffer)\n"
-                    elif search_result.has_more:
-                        setup_text += "(weitere Treffer verfügbar)\n"
-                else:
-                    # Zero results
-                    setup_text += "(keine Treffer gefunden)\n"
-                
-                setup_text += "\n"
-                
-                logger.info(f"Provider {provider.name}: {matched_count} matches for '{keyword_text}'")
-                
-            except Exception as e:
-                logger.error(f"Error searching provider {provider.name}: {e}")
-                setup_text += f"**Erste Treffer – {provider.name}**\n"
-                setup_text += "(Fehler beim Abrufen der Ergebnisse)\n\n"
+        for platform in sorted(counts_per_provider.keys()):
+            result = counts_per_provider[platform]
+            
+            if result["error"]:
+                count_text = "(Fehler bei der Abfrage)"
+            elif result["matched_count"] == 0:
+                count_text = "0 Treffer gefunden"
+            elif result["total_count"]:
+                count_text = f"{result['total_count']} Treffer gefunden"
+            elif result["has_more"]:
+                count_text = f"mindestens {result['matched_count']} Treffer (weitere Treffer verfügbar)"
+            else:
+                count_text = f"{result['matched_count']} Treffer gefunden"
+            
+            # Format platform name (capitalize first letter)
+            platform_display = platform.replace(".com", "").replace(".de", "").capitalize()
+            setup_text += f"• **{platform_display}**: {count_text}\n"
+            
+            # Collect items for baseline seeding
+            if "items" in result and result["items"]:
+                all_matched_items.extend(result["items"])
         
-        # Add global summary if all providers returned zero
-        if grand_total == 0:
-            setup_text += f"Für \"{keyword_text}\" wurden aktuell keine Treffer gefunden. Ich überwache weiter und benachrichtige Sie bei neuen Angeboten.\n\n"
+        # Add placeholder for future platforms
+        setup_text += "• **Weitere Plattformen**: in Vorbereitung\n\n"
         
         # Add management info
         setup_text += f"⏱️ Frequenz: Alle 60 Sekunden\n"
-        setup_text += f"🌐 Plattformen: {', '.join([p.name for p in providers])}"
+        setup_text += f"🔍 Verwenden Sie `/testen {keyword_text}` um Beispielergebnisse zu sehen."
         
         # Seed the seen_set with all current matches to prevent immediate notifications
         await keyword_service.seed_seen_set(keyword.id, all_matched_items)
@@ -207,10 +176,10 @@ async def perform_setup_search_with_count(message: Message, keyword, keyword_tex
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text="📊 Statistiken", callback_data=f"stats_{keyword.id}"),
-                InlineKeyboardButton(text="⏸️ Pausieren", callback_data=f"pause_{keyword.id}")
+                InlineKeyboardButton(text="🧪 Testen", callback_data=f"test_{keyword.id}")
             ],
             [
-                InlineKeyboardButton(text="🔄 Aktuellen Stand zeigen", callback_data=f"show_current_{keyword.id}"),
+                InlineKeyboardButton(text="⏸️ Pausieren", callback_data=f"pause_{keyword.id}"),
                 InlineKeyboardButton(text="🗑️ Löschen", callback_data=f"delete_{keyword.id}")
             ]
         ])
@@ -218,7 +187,7 @@ async def perform_setup_search_with_count(message: Message, keyword, keyword_tex
         # Edit the searching message with results
         await searching_msg.edit_text(setup_text, parse_mode="Markdown", reply_markup=keyboard)
         
-        logger.info(f"Setup search for '{keyword_text}': {grand_total} total matches across {len(providers)} providers, seeded seen_set")
+        logger.info(f"Setup search for '{keyword_text}': counts retrieved, seeded {len(all_matched_items)} items")
         
     except Exception as e:
         logger.error(f"Error performing setup search: {e}")
