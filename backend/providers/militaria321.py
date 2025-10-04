@@ -580,8 +580,8 @@ class Militaria321Provider(BaseProvider):
             logger.debug(f"Error parsing single listing element: {e}")
             return None
     
-    def _extract_price(self, element):
-        """Extract price from listing element"""
+    def _extract_price_robust(self, element):
+        """Extract price from listing element using robust parsing"""
         price_selectors = ['.price', '.cost', '.amount', '[class*="price"]', '[id*="price"]']
         price_text = None
         
@@ -592,31 +592,29 @@ class Militaria321Provider(BaseProvider):
                 break
         
         if not price_text:
-            # Look for currency symbols in any text
+            # Look for currency patterns in element text
             text = element.get_text()
-            price_match = re.search(r'([\d,]+(?:\.\d{2})?)\s*([€$£]|EUR|USD|GBP)', text)
-            if price_match:
-                price_text = price_match.group()
+            # Look for price patterns: numbers followed by currency
+            price_patterns = [
+                r'([\d.,]+)\s*([€$£]|EUR|USD|GBP)',
+                r'([€$£])\s*([\d.,]+)',
+                r'(EUR|USD|GBP)\s*([\d.,]+)',
+            ]
+            
+            for pattern in price_patterns:
+                match = re.search(pattern, text)
+                if match:
+                    price_text = match.group()
+                    break
         
         if price_text:
-            # Parse price
-            price_match = re.search(r'([\d,]+(?:\.\d{2})?)', price_text.replace(',', ''))
-            currency_match = re.search(r'([€$£]|EUR|USD|GBP)', price_text)
+            # Use the robust price parsing
+            decimal_value, currency = self.parse_price(price_text)
+            logger.debug(f"Price parsing: '{price_text}' -> {decimal_value} {currency}")
             
-            price_value = None
-            if price_match:
-                try:
-                    price_value = float(price_match.group(1))
-                except ValueError:
-                    pass
-            
-            price_currency = None
-            if currency_match:
-                currency_map = {'€': 'EUR', '$': 'USD', '£': 'GBP'}
-                currency = currency_match.group(1)
-                price_currency = currency_map.get(currency, currency)
-            
-            return price_value, price_currency
+            # Convert Decimal back to float for storage (maintaining precision)
+            float_value = float(decimal_value) if decimal_value else None
+            return float_value, currency
         
         return None, None
     
