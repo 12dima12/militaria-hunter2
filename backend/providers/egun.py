@@ -4,10 +4,11 @@ from datetime import datetime
 from typing import List, Optional, Tuple
 import logging
 import asyncio
-from urllib.parse import urljoin, quote_plus
+from urllib.parse import urljoin
 import re
 import unicodedata
 from decimal import Decimal, InvalidOperation
+from zoneinfo import ZoneInfo
 
 from .base import BaseProvider
 from models import Listing, SearchResult
@@ -23,6 +24,7 @@ class EgunProvider(BaseProvider):
         self.base_url = "https://www.egun.de/market/"
         self.search_url = f"{self.base_url}list_items.php"
         self.index_url = f"{self.base_url}index.php"
+        self._tz_berlin = ZoneInfo("Europe/Berlin")
     
     def _normalize_text(self, text: str) -> str:
         """Normalize text for matching using Unicode NFKC + casefold + trim"""
@@ -40,8 +42,6 @@ class EgunProvider(BaseProvider):
         
         # Check each token individually with whole-word matching
         for token in tokens:
-            # Find all occurrences of the token as whole word
-            # Use word boundaries, but also treat hyphen/underscore/slash as separators
             pattern = rf"(?<![a-zA-Z0-9äöüß]){re.escape(token)}(?![a-zA-Z0-9äöüß])"
             matches = list(re.finditer(pattern, title_normalized, re.UNICODE))
             
@@ -116,22 +116,16 @@ class EgunProvider(BaseProvider):
         if value is None:
             return ""
         
-        # Convert to string with 2 decimal places
         value_str = f"{value:.2f}"
-        
-        # Split into integer and decimal parts
         parts = value_str.split('.')
         integer_part = parts[0]
         decimal_part = parts[1]
         
-        # Add thousands separators (dots) every 3 digits from right
         if len(integer_part) > 3:
-            # Reverse, add dots every 3 chars, reverse back
             reversed_int = integer_part[::-1]
             with_dots = '.'.join(reversed_int[i:i+3] for i in range(0, len(reversed_int), 3))
             integer_part = with_dots[::-1]
         
-        # Format: "1.234,56 €" (dot for thousands, comma for decimal, space before currency)
         currency_symbol = "€" if currency == "EUR" else currency
         return f"{integer_part},{decimal_part} {currency_symbol}"
     
@@ -153,25 +147,34 @@ class EgunProvider(BaseProvider):
                 if page_listings:
                     all_listings.extend(page_listings)
                     
-                    # Update total estimate from first page that returns results
                     if page_total and total_estimated == 0:
                         total_estimated = page_total
                     
-                    # If this page has more, overall result has more
                     if page_has_more:
                         has_more = True
+
+                    # Early-stop: only if all items have posted_ts and all are older than since_ts
+                    if since_ts is not None:
+                        try:
+                            has_any_ts = 0
+                            all_older = True
+                            for it in page_listings:
+                                if getattr(it, 'posted_ts', None) is not None and getattr(it, 'posted_ts').tzinfo is not None:
+                                    has_any_ts += 1
+                                    if it.posted_ts >= since_ts:
+                                        all_older = False
+                                        break
+                            if has_any_ts == len(page_listings) and all_older:
+                                logger.info("Early-stop (egun): page has only items older than since_ts")
+                                break
+                        except Exception:
+                            pass
                 else:
-                    # No results on this page, stop pagination
                     break
                 
-                # Small delay between pages to be respectful
                 if page < max_pages:
                     await asyncio.sleep(1)
             
-            # Filter by timestamp if provided (egun doesn't provide timestamps, so we can't filter reliably)
-            # In production, track listings in database and compare
-            
-            # Deduplicate listings by platform_id
             seen_ids = set()
             unique_listings = []
             for listing in all_listings:
@@ -182,7 +185,7 @@ class EgunProvider(BaseProvider):
             return SearchResult(
                 items=unique_listings,
                 total_count=total_estimated if total_estimated > 0 else None,
-                has_more=has_more or len(unique_listings) >= 50  # Assume more if we got many results
+                has_more=has_more or len(unique_listings) >= 50
             )
             
         except Exception as e:
@@ -208,7 +211,6 @@ class EgunProvider(BaseProvider):
         
         try:
             async with httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
-                # Build search parameters using discovered form structure
                 params = {
                     'mode': 'qry',
                     'plusdescr': 'off',
@@ -217,58 +219,34 @@ class EgunProvider(BaseProvider):
                     'quick': '1'
                 }
                 
-                # Add pagination if not first page
                 if page > 1:
-                    params['start'] = (page - 1) * 50  # Assuming 50 items per page
+                    params['start'] = (page - 1) * 50
                 
                 logger.info(f"GET search to egun.de page {page} with params: query='{query}'")
                 response = await client.get(self.search_url, params=params)
                 response.raise_for_status()
                 
-                # Debug: Log response details
-                logger.info(f"Response status: {response.status_code}, Content length: {len(response.content)}")
-                logger.info(f"Response encoding: {response.encoding}")
-                logger.info(f"Content-Type: {response.headers.get('content-type', 'unknown')}")
-                
-                # Set encoding explicitly (egun uses ISO-8859-1 but content is UTF-8)
                 if response.encoding is None or response.encoding.lower() == 'iso-8859-1':
-                    # Try UTF-8 first for better umlaut support
                     response.encoding = 'utf-8'
                 
                 content = response.text
-                logger.info(f"Content preview: {content[:200]}...")
-                
                 soup = BeautifulSoup(content, 'html.parser')
                 
-                # Verify the response actually reflects our query
                 page_text = soup.get_text().lower()
                 query_normalized = self._normalize_text(query).lower()
                 
-                # Check if the search was actually performed
                 query_reflected = query_normalized in page_text
                 
                 if not query_reflected and page == 1:
-                    logger.warning(f"Query '{query}' (normalized: '{query_normalized}') not reflected in search results page")
-                    
-                    # Check for empty result indicators
                     empty_indicators = ['keine treffer', 'keine ergebnisse', 'no results found']
                     for indicator in empty_indicators:
                         if indicator in page_text:
-                            logger.info(f"Found empty result indicator: '{indicator}'")
                             return [], 0, False
-                    
-                    # If query not reflected, might still have results
-                    logger.info("Query not strongly reflected but continuing to parse...")
-                else:
-                    logger.info(f"Query '{query}' successfully reflected in search results")
                 
-                # Log item links found
-                item_links = soup.find_all('a', href=lambda x: x and 'item.php' in str(x))
-                logger.info(f"Found {len(item_links)} item links on page")
+                item_links = soup.find_all('a', href=lambda x: x and 'item.php?id=' in str(x))
                 
                 listings, total_count, has_more = self._parse_search_page(soup, query, page)
                 
-                logger.info(f"Page {page}: Found {len(listings)} listings")
                 return listings, total_count, has_more
                 
         except httpx.RequestError as e:
@@ -288,60 +266,36 @@ class EgunProvider(BaseProvider):
         has_more = False
         
         try:
-            # Try to extract total count from search results text
             total_count = self._extract_total_count(soup)
-            
-            # Check if there are more pages
             has_more = self._has_next_page(soup)
             
-            # Find item links - egun uses item.php?id=XXXXX pattern
             item_links = soup.find_all('a', href=lambda x: x and 'item.php?id=' in str(x))
             
-            logger.info(f"Found {len(item_links)} item links on page")
-            
             if not item_links:
-                # No items found
-                logger.info(f"No item links found for query '{original_query}'")
                 return [], total_count, has_more
             
-            # Build unique listing containers from item links
-            # Use the parent <tr> row as the container since it has all the details
             seen_containers = set()
             listing_containers = []
             
             for link in item_links:
-                # Find parent table row
                 container = link.find_parent('tr')
-                
                 if not container:
-                    # If no tr parent, skip this link
                     continue
-                
-                # Avoid duplicate containers (multiple links might be in same row)
                 container_id = id(container)
                 if container_id not in seen_containers:
                     seen_containers.add(container_id)
                     listing_containers.append(container)
             
-            logger.info(f"Processing {len(listing_containers)} unique listing containers")
-            
-            # Parse individual listings with keyword matching
-            for i, container in enumerate(listing_containers[:100]):  # Cap at 100 per page
+            for i, container in enumerate(listing_containers[:100]):
                 try:
                     listing = self._parse_single_listing(container, original_query)
                     if listing and listing.platform_id:
-                        # Apply strict keyword matching on title only
                         if self.matches_keyword(listing.title, original_query):
                             listings.append(listing)
-                            logger.debug(f"✓ Matched #{i+1}: '{listing.title}' -> ID:{listing.platform_id}")
-                        else:
-                            logger.debug(f"✗ Container {i+1}: Title '{listing.title}' doesn't match query '{original_query}'")
                 except Exception as e:
                     logger.warning(f"Error parsing container {i+1}: {e}")
                     continue
             
-            logger.info(f"Successfully parsed {len(listings)} matching listings for '{original_query}'")
-                
         except Exception as e:
             logger.error(f"Error parsing egun.de search page: {e}")
         
@@ -350,47 +304,28 @@ class EgunProvider(BaseProvider):
     def _parse_single_listing(self, element, original_query: str) -> Optional[Listing]:
         """Parse a single listing element from a table row"""
         try:
-            # Find item link within the row
             item_link = element.find('a', href=lambda x: x and 'item.php?id=' in str(x))
             
             if not item_link:
-                logger.debug(f"No item link found in row")
                 return None
             
-            # Extract title from link text
             title = item_link.get_text().strip()
             if not title or len(title) < 3:
-                logger.debug(f"Title too short or empty: '{title}'")
                 return None
-            
-            # Clean title (limit length)
             title = title[:200]
-            logger.debug(f"Extracted title: '{title}'")
             
-            # Extract URL and ID from link
             href = item_link.get('href')
             if not href:
-                logger.debug(f"No href in item link")
                 return None
             
             url = urljoin(self.base_url, href)
-            
-            # Extract platform_id from URL (item.php?id=XXXXX)
             id_match = re.search(r'id=(\d+)', href)
             if not id_match:
-                logger.debug(f"Could not extract ID from URL: {href}")
                 return None
-            
             platform_id = id_match.group(1)
-            logger.debug(f"Extracted URL: '{url}', ID: {platform_id}")
             
-            # Extract price using robust parsing
             price_value, price_currency = self._extract_price_robust(element)
-            
-            # Extract image
             image_url = self._extract_image(element)
-            
-            # Extract other details
             location = self._extract_location(element)
             condition = self._extract_condition(element)
             seller_name = self._extract_seller(element)
@@ -407,51 +342,40 @@ class EgunProvider(BaseProvider):
                 seller_name=seller_name,
                 image_url=image_url,
                 first_seen_ts=datetime.utcnow(),
-                last_seen_ts=datetime.utcnow()
+                last_seen_ts=datetime.utcnow(),
+                posted_ts=None,
             )
             
-        except Exception as e:
-            logger.debug(f"Error parsing single listing element: {e}")
+        except Exception:
             return None
     
     def _extract_price_robust(self, element):
         """Extract price from listing element using robust parsing"""
-        # egun shows prices in <td align="right" nowrap> format like "599,00 EUR"
         price_td = element.find('td', attrs={'align': 'right', 'nowrap': True})
         
         if price_td:
             price_text = price_td.get_text().strip()
-            # Sometimes there are multiple prices (original + strikethrough)
-            # Take the first non-italic one (current price)
             lines = price_text.split('\n')
             for line in lines:
-                if line.strip() and 'EUR' in line or '€' in line:
-                    # Use the robust price parsing
+                if line.strip() and ('EUR' in line or '€' in line):
                     decimal_value, currency = self.parse_price(line.strip())
-                    logger.debug(f"Price parsing: '{line.strip()}' -> {decimal_value} {currency}")
-                    
-                    # Convert Decimal to float for storage
                     float_value = float(decimal_value) if decimal_value else None
                     return float_value, currency
         
         return None, "EUR"
     
     def _extract_image(self, element):
-        """Extract image URL from listing element"""
         img = element.find('img', src=True)
         if img:
             src = img.get('src')
-            if src and 'aucimg' in src:  # egun uses aucimg for auction images
+            if src and 'aucimg' in src:
                 return urljoin(self.base_url, src)
         return None
     
     def _extract_location(self, element):
-        """Extract location from listing element"""
-        # egun doesn't always show location in list view
         return None
     
     def _extract_condition(self, element):
-        """Extract condition from listing element"""
         condition_keywords = ['neu', 'gebraucht', 'new', 'used', 'excellent', 'good', 'fair', 'sehr gut', 'gut']
         text = element.get_text().lower()
         for keyword in condition_keywords:
@@ -460,13 +384,9 @@ class EgunProvider(BaseProvider):
         return None
     
     def _extract_seller(self, element):
-        """Extract seller name from listing element"""
-        # egun doesn't show seller in list view typically
         return None
     
     def _extract_total_count(self, soup: BeautifulSoup) -> Optional[int]:
-        """Extract total result count from page"""
-        # Look for result count text patterns like "X Treffer"
         text = soup.get_text()
         count_patterns = [
             r'(\d+)\s+Treffer',
@@ -481,31 +401,89 @@ class EgunProvider(BaseProvider):
                     return int(match.group(1))
                 except ValueError:
                     continue
-        
         return None
     
     def _has_next_page(self, soup: BeautifulSoup) -> bool:
-        """Check if there are more pages"""
-        # Look for pagination links
         next_selectors = [
             'a[href*="start="]',
             'a:contains("weiter")',
             'a:contains("nächste")',
             'a:contains("next")',
         ]
-        
         for selector in next_selectors:
             if soup.select(selector):
                 return True
-        
         return False
     
     def build_query(self, keyword: str) -> str:
-        """Build egun-specific search query"""
-        # Simple query normalization (preserve original for better matching)
         return keyword.strip()
     
     def _get_next_page_url(self, current_url: str, soup: BeautifulSoup) -> Optional[str]:
-        """Get next page URL for pagination"""
         from providers.pagination_utils import get_next_page_url_egun
         return get_next_page_url_egun(current_url, soup)
+    
+    # -------------------- posted_ts support --------------------
+    def _parse_posted_ts_from_text(self, text: str) -> Optional[datetime]:
+        try:
+            # Broad set of labels observed on detail pages
+            m = re.search(r'(?:Auktionsbeginn|Eingestellt|Angebotsbeginn|Start|Erstellt|Angelegt)\s*:?\s*(\d{1,2}\.\d{1,2}\.\d{4})\s+(\d{1,2}:\d{2})\s*Uhr', text, re.IGNORECASE)
+            if not m:
+                m = re.search(r'(\d{1,2}\.\d{1,2}\.\d{4})\s+(\d{1,2}:\d{2})\s*Uhr', text)
+            if not m:
+                return None
+            date_part = m.group(1)
+            time_part = m.group(2)
+            dt_naive = datetime.strptime(f"{date_part} {time_part}", "%d.%m.%Y %H:%M")
+            dt_local = dt_naive.replace(tzinfo=self._tz_berlin)
+            dt_utc = dt_local.astimezone(ZoneInfo("UTC"))
+            return dt_utc
+        except Exception:
+            return None
+    
+    def _parse_posted_ts_from_soup(self, soup: BeautifulSoup) -> Optional[datetime]:
+        try:
+            for dt in soup.find_all(['dt', 'th']):
+                label = dt.get_text(strip=True)
+                if re.search(r'(Auktionsbeginn|Eingestellt|Angebotsbeginn|Start|Erstellt|Angelegt)', label, re.IGNORECASE):
+                    sib = dt.find_next('dd') or dt.find_next('td')
+                    if sib:
+                        ts = self._parse_posted_ts_from_text(sib.get_text(" ", strip=True))
+                        if ts:
+                            return ts
+            for tr in soup.find_all('tr'):
+                cells = tr.find_all(['td', 'th'])
+                if len(cells) >= 2:
+                    label = cells[0].get_text(" ", strip=True)
+                    if re.search(r'(Auktionsbeginn|Eingestellt|Angebotsbeginn|Start|Erstellt|Angelegt)', label, re.IGNORECASE):
+                        ts = self._parse_posted_ts_from_text(cells[1].get_text(" ", strip=True))
+                        if ts:
+                            return ts
+            full = soup.get_text(" ", strip=True)
+            return self._parse_posted_ts_from_text(full)
+        except Exception:
+            return None
+    
+    async def fetch_posted_ts_batch(self, listings: List[Listing], concurrency: int = 4) -> None:
+        targets = [it for it in listings if it.platform == self.name and not getattr(it, 'posted_ts', None)]
+        if not targets:
+            return
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
+        }
+        sem = asyncio.Semaphore(concurrency)
+        async def worker(item: Listing, client: httpx.AsyncClient):
+            async with sem:
+                try:
+                    await asyncio.sleep(0.2)
+                    resp = await client.get(item.url, timeout=30.0)
+                    resp.raise_for_status()
+                    soup = BeautifulSoup(resp.text, 'html.parser')
+                    ts = self._parse_posted_ts_from_soup(soup)
+                    item.posted_ts = ts
+                    logger.info(f"egun posted_ts for {item.platform_id}: {ts}")
+                except Exception as e:
+                    logger.debug(f"Failed to fetch egun posted_ts for {item.url}: {e}")
+        async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
+            await asyncio.gather(*(worker(it, client) for it in targets))

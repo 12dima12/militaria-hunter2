@@ -1,10 +1,12 @@
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 import os
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import logging
 from datetime import datetime
+import re
 
 from models import User, Keyword, StoredListing, KeywordHit, Notification, DeleteAttemptLog
+from utils.listing_key import extract_platform_id
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +30,11 @@ class DatabaseManager:
         self.client = AsyncIOMotorClient(mongo_url)
         self.db = self.client[db_name]
         
-        # Create indexes
+        # Create indexes and verify
         await self._create_indexes()
+        # Run one-time migration(s) that must precede scheduler/bot
+        await self._migrate_notifications_listing_key()
+        
         self._initialized = True
         logger.info(f"Database initialized: {db_name}")
     
@@ -56,32 +61,122 @@ class DatabaseManager:
             await self.db.notifications.create_index("user_id")
             await self.db.notifications.create_index("sent_at")
             
-            # CRITICAL: Unique index for idempotency - prevents duplicate notifications
-            # Drop old index if exists (to handle migration)
-            try:
-                await self.db.notifications.drop_index("idempotency_guard")
-            except:
-                pass  # Index doesn't exist, that's fine
+            # Drop legacy unique indexes if present
+            for idx_name in ["user_keyword_key_unique", "idempotency_guard", "user_keyword_listing_unique"]:
+                try:
+                    await self.db.notifications.drop_index(idx_name)
+                except Exception:
+                    pass
             
-            # Create new unique index
+            # Create new partial unique index to exclude null/missing listing_key
             await self.db.notifications.create_index(
                 [("user_id", 1), ("keyword_id", 1), ("listing_key", 1)],
                 unique=True,
-                name="idempotency_guard"
+                name="user_keyword_listing_unique",
+                partialFilterExpression={"listing_key": {"$type": "string"}}
             )
-            # Verify the unique index exists
-            try:
-                idxes = await self.db.notifications.index_information()
-                verified = any(name == "idempotency_guard" and info.get("unique") for name, info in idxes.items())
-                logger.info(f"notifications_unique_index_verified={bool(verified)}")
-            except Exception as ve:
-                logger.warning(f"Could not verify notifications unique index: {ve}")
-
             
             logger.info("Database indexes created successfully")
             
+            # Verify the unique index exists
+            try:
+                idxes = await self.db.notifications.index_information()
+                verified = any(
+                    name == "user_keyword_listing_unique" and info.get("unique")
+                    for name, info in idxes.items()
+                )
+                logger.info(f"notifications_unique_index_verified={bool(verified)}")
+            except Exception as ve:
+                logger.warning(f"Could not verify notifications unique index: {ve}")
+            
         except Exception as e:
             logger.error(f"Error creating indexes: {e}")
+    
+    async def _migrate_notifications_listing_key(self) -> None:
+        """
+        One-time migration: backfill notifications.listing_key where null/missing, then ensure unique index.
+        Steps:
+        - Find notifications with missing/null/empty listing_key
+        - For each, fetch corresponding listing and derive canonical platform_id from URL (preferred) or use stored platform_id
+        - Set listing_key = f"{platform}:{platform_id}"; if cannot derive, delete the notification (archive/delete policy)
+        - Finally, (re)create the partial unique index
+        """
+        try:
+            # Pause-like state: since called before scheduler/bot start, no concurrent writes
+            cursor = self.db.notifications.find({
+                "$or": [
+                    {"listing_key": {"$exists": False}},
+                    {"listing_key": None},
+                    {"listing_key": ""}
+                ]
+            })
+            total_scanned = 0
+            backfilled = 0
+            archived = 0
+            async for notif in cursor:
+                total_scanned += 1
+                notif_id = notif.get("_id")
+                listing_id = notif.get("listing_id")
+                if not listing_id:
+                    # No link to listing, cannot recover
+                    await self.db.notifications.delete_one({"_id": notif_id})
+                    archived += 1
+                    logger.warning(f"Migration: deleted orphan notification {_id} (no listing_id)")
+                    continue
+                listing = await self.db.listings.find_one({"id": listing_id})
+                if not listing:
+                    # Orphaned notification
+                    await self.db.notifications.delete_one({"_id": notif_id})
+                    archived += 1
+                    logger.warning(f"Migration: deleted orphan notification {notif_id} (listing not found)")
+                    continue
+                platform = listing.get("platform")
+                url = listing.get("url")
+                platform_id = ""
+                try:
+                    platform_id = extract_platform_id(platform, url)
+                except Exception:
+                    platform_id = ""
+                if not platform_id:
+                    platform_id = listing.get("platform_id") or ""
+                if not platform or not platform_id:
+                    # Still cannot construct stable key; delete notification
+                    await self.db.notifications.delete_one({"_id": notif_id})
+                    archived += 1
+                    logger.warning(f"Migration: deleted notification {notif_id} (cannot derive listing_key)")
+                    continue
+                listing_key = f"{platform}:{platform_id}"
+                await self.db.notifications.update_one({"_id": notif_id}, {"$set": {"listing_key": listing_key}})
+                backfilled += 1
+            # Rebuild the partial unique index again to ensure cleanliness
+            for idx_name in ["user_keyword_key_unique", "idempotency_guard", "user_keyword_listing_unique"]:
+                try:
+                    await self.db.notifications.drop_index(idx_name)
+                except Exception:
+                    pass
+            await self.db.notifications.create_index(
+                [("user_id", 1), ("keyword_id", 1), ("listing_key", 1)],
+                unique=True,
+                name="user_keyword_listing_unique",
+                partialFilterExpression={"listing_key": {"$type": "string"}}
+            )
+            remaining_null = await self.db.notifications.count_documents({
+                "$or": [
+                    {"listing_key": {"$exists": False}},
+                    {"listing_key": None},
+                    {"listing_key": ""}
+                ]
+            })
+            logger.info({
+                "event": "migration_report",
+                "collection": "notifications",
+                "total_scanned": total_scanned,
+                "backfilled": backfilled,
+                "archived": archived,
+                "remaining_null": remaining_null,
+            })
+        except Exception as e:
+            logger.error(f"Migration error (notifications listing_key): {e}")
     
     # User operations
     async def create_user(self, user: User) -> User:
@@ -212,7 +307,7 @@ class DatabaseManager:
             # Update last_seen_ts
             await self.db.listings.update_one(
                 {"platform": listing.platform, "platform_id": listing.platform_id},
-                {"$set": {"last_seen_ts": listing.last_seen_ts}}
+                {"$set": {"last_seen_ts": listing.last_seen_ts, "posted_ts": listing.posted_ts, "end_ts": listing.end_ts}}
             )
             return StoredListing(**existing)
         else:
@@ -292,6 +387,10 @@ class DatabaseManager:
             False if notification already exists (duplicate, skip sending)
         """
         try:
+            # Guard: listing_key must be a non-empty string
+            if not isinstance(listing_key, str) or not listing_key.strip():
+                logger.warning("Refusing to insert notification without valid listing_key")
+                return False
             # Add idempotency fields
             notification_data.update({
                 "user_id": user_id,

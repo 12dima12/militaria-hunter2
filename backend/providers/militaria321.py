@@ -202,16 +202,18 @@ class Militaria321Provider(BaseProvider):
                         if page_has_more:
                             has_more = True
 
-                        # Provider-level early-stop: if since_ts provided and all items on this page are older than since_ts
+                        # Provider-level early-stop: only when all items on this page have posted_ts and all are older than since_ts
                         if since_ts is not None:
                             try:
-                                older_only = True
+                                has_any_ts = 0
+                                all_older = True
                                 for it in page_listings:
                                     if getattr(it, 'posted_ts', None) is not None and getattr(it, 'posted_ts').tzinfo is not None:
+                                        has_any_ts += 1
                                         if it.posted_ts >= since_ts:
-                                            older_only = False
+                                            all_older = False
                                             break
-                                if older_only:
+                                if has_any_ts == len(page_listings) and all_older:
                                     logger.info("Early-stop: page contains only items older than since_ts; stopping pagination for this run")
                                     break
                             except Exception:
@@ -501,7 +503,7 @@ class Militaria321Provider(BaseProvider):
             auction_link = element.find('a', href=lambda x: x and 'auktion' in str(x).lower())
             
             if not auction_link:
-                logger.debug("No auction link found in row")
+                logger.debug(f"No auction link found in row")
                 return None
             
             # Extract title from link text
@@ -517,7 +519,7 @@ class Militaria321Provider(BaseProvider):
             # Extract URL from link
             href = auction_link.get('href')
             if not href:
-                logger.debug("No href in auction link")
+                logger.debug(f"No href in auction link")
                 return None
             
             url = urljoin(self.base_url, href)
@@ -661,82 +663,3 @@ class Militaria321Provider(BaseProvider):
         """Get next page URL for pagination"""
         from providers.pagination_utils import get_next_page_url_militaria321
         return get_next_page_url_militaria321(current_url, soup)
-
-    # -------------------- posted_ts support --------------------
-    def _parse_posted_ts_from_text(self, text: str) -> Optional[datetime]:
-        """Parse German date like '04.10.2025 13:21 Uhr' from text and return UTC-aware datetime."""
-        try:
-            m = re.search(r'(?:Auktionsbeginn|Eingestellt)\s*:?[\s\xa0]*?(\d{1,2}\.\d{1,2}\.\d{4})\s+(\d{1,2}:\d{2})\s*Uhr', text, re.IGNORECASE)
-            if not m:
-                # Try generic dd.mm.yyyy HH:MM Uhr without label
-                m = re.search(r'(\d{1,2}\.\d{1,2}\.\d{4})\s+(\d{1,2}:\d{2})\s*Uhr', text)
-            if not m:
-                return None
-            date_part = m.group(1)
-            time_part = m.group(2)
-            dt_naive = datetime.strptime(f"{date_part} {time_part}", "%d.%m.%Y %H:%M")
-            dt_local = dt_naive.replace(tzinfo=self._tz_berlin)
-            dt_utc = dt_local.astimezone(ZoneInfo("UTC"))
-            return dt_utc
-        except Exception:
-            return None
-
-    def _parse_posted_ts_from_soup(self, soup: BeautifulSoup) -> Optional[datetime]:
-        # Scan common containers for the labels
-        try:
-            # Look in definition lists, tables, and generic text
-            # 1) dt/dd pattern
-            for dt in soup.find_all(['dt', 'th']):
-                label = dt.get_text(strip=True)
-                if re.search(r'(Auktionsbeginn|Eingestellt)', label, re.IGNORECASE):
-                    # corresponding dd/td
-                    sib = dt.find_next('dd') or dt.find_next('td')
-                    if sib:
-                        ts = self._parse_posted_ts_from_text(sib.get_text(" ", strip=True))
-                        if ts:
-                            return ts
-            # 2) table rows
-            for tr in soup.find_all('tr'):
-                cells = tr.find_all(['td', 'th'])
-                if len(cells) >= 2:
-                    label = cells[0].get_text(" ", strip=True)
-                    if re.search(r'(Auktionsbeginn|Eingestellt)', label, re.IGNORECASE):
-                        ts = self._parse_posted_ts_from_text(cells[1].get_text(" ", strip=True))
-                        if ts:
-                            return ts
-            # 3) fallback: full text search
-            full = soup.get_text(" ", strip=True)
-            return self._parse_posted_ts_from_text(full)
-        except Exception:
-            return None
-
-    async def fetch_posted_ts_batch(self, listings: List[Listing], concurrency: int = 4) -> None:
-        """Fetch and set posted_ts for each listing (in place). Skips those already having posted_ts."""
-        # Filter targets
-        targets = [it for it in listings if it.platform == self.name and not getattr(it, 'posted_ts', None)]
-        if not targets:
-            return
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-            'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Accept-Encoding': 'gzip, deflate',
-            'Connection': 'keep-alive',
-        }
-        sem = asyncio.Semaphore(concurrency)
-
-        async def worker(item: Listing, client: httpx.AsyncClient):
-            async with sem:
-                try:
-                    await asyncio.sleep(random.uniform(0.2, 0.6))
-                    resp = await client.get(item.url, timeout=30.0)
-                    resp.raise_for_status()
-                    soup = BeautifulSoup(resp.text, 'html.parser')
-                    ts = self._parse_posted_ts_from_soup(soup)
-                    item.posted_ts = ts
-                    logger.info(f"posted_ts for {item.platform_id}: {ts}")
-                except Exception as e:
-                    logger.debug(f"Failed to fetch posted_ts for {item.url}: {e}")
-
-        async with httpx.AsyncClient(headers=headers, follow_redirects=True) as client:
-            await asyncio.gather(*(worker(it, client) for it in targets))

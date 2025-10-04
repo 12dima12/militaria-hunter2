@@ -102,7 +102,7 @@ class SearchService:
                 if platform in self.providers:
                     try:
                         provider = self.providers[platform]
-                        # Pass since_ts to allow provider-level optimizations if any
+                        # Pass since_ts to allow provider-level early stop
                         search_result = await provider.search(keyword.keyword, since_ts=keyword.since_ts, sample_mode=False)
                         all_raw_listings.extend(search_result.items)
                         logger.debug(f"Raw search found {len(search_result.items)} listings for '{keyword.keyword}' on {platform}")
@@ -128,32 +128,35 @@ class SearchService:
                     if provider.matches_keyword(listing.title, keyword.keyword):
                         matched_listings.append(listing)
             
-            # Enrich posted_ts for militaria321 items that are not in seen_set
+            # Enrich posted_ts for militaria321 and egun items that are not in seen_set
             try:
-                m321 = self.providers.get("militaria321.com")
-                if m321:
-                    # Determine which items need enrichment
-                    from utils.listing_key import build_listing_key
-                    to_enrich: List[Listing] = []
-                    for it in matched_listings:
-                        if it.platform != "militaria321.com":
-                            continue
-                        key = None
-                        try:
-                            key = build_listing_key(it.platform, it.url)
-                        except Exception:
-                            # If key extraction fails, still try enrich to help gating
-                            pass
-                        if key and key in keyword.seen_listing_keys:
-                            # Already in baseline; no need to fetch detail now
-                            continue
-                        if getattr(it, 'posted_ts', None) is None:
-                            to_enrich.append(it)
-                    if to_enrich:
-                        logger.info(f"Fetching posted_ts for {len(to_enrich)} militaria321 items")
-                        await m321.fetch_posted_ts_batch(to_enrich, concurrency=4)
+                from utils.listing_key import build_listing_key
+                to_enrich_by_platform: Dict[str, List[Listing]] = {"militaria321.com": [], "egun.de": []}
+                for it in matched_listings:
+                    if it.platform not in to_enrich_by_platform:
+                        continue
+                    key = None
+                    try:
+                        key = build_listing_key(it.platform, it.url)
+                    except Exception:
+                        pass
+                    if key and key in keyword.seen_listing_keys:
+                        continue
+                    if getattr(it, 'posted_ts', None) is None:
+                        to_enrich_by_platform[it.platform].append(it)
+                # Fetch in batches per platform
+                if to_enrich_by_platform["militaria321.com"]:
+                    m321 = self.providers.get("militaria321.com")
+                    if m321 and hasattr(m321, 'fetch_posted_ts_batch'):
+                        logger.info(f"Fetching posted_ts for {len(to_enrich_by_platform['militaria321.com'])} militaria321 items")
+                        await m321.fetch_posted_ts_batch(to_enrich_by_platform["militaria321.com"], concurrency=4)
+                if to_enrich_by_platform["egun.de"]:
+                    egun = self.providers.get("egun.de")
+                    if egun and hasattr(egun, 'fetch_posted_ts_batch'):
+                        logger.info(f"Fetching posted_ts for {len(to_enrich_by_platform['egun.de'])} egun items")
+                        await egun.fetch_posted_ts_batch(to_enrich_by_platform["egun.de"], concurrency=4)
             except Exception as e:
-                logger.warning(f"Error enriching posted_ts for militaria321 items: {e}")
+                logger.warning(f"Error enriching posted_ts for items: {e}")
             
             results["matched_listings"] = len(matched_listings)
             logger.info(f"Keyword '{keyword.keyword}': {len(all_raw_listings)} raw -> {len(matched_listings)} matched")
@@ -168,7 +171,6 @@ class SearchService:
             from utils.listing_key import build_listing_key
             keyword_service = KeywordService(self.db)
             match_mode = "strict"  # current default
-
             
             for listing in matched_listings:
                 # Build stable listing key using centralized utility
@@ -240,9 +242,8 @@ class SearchService:
                     image_url=listing.image_url,
                     first_seen_ts=listing.first_seen_ts or datetime.utcnow(),
                     last_seen_ts=listing.last_seen_ts or datetime.utcnow(),
-                    end_ts=getattr(listing, 'end_ts', None),
-
                     posted_ts=getattr(listing, 'posted_ts', None),
+                    end_ts=getattr(listing, 'end_ts', None),
                 )
                 
                 await self.db.create_or_update_listing(stored_listing)
