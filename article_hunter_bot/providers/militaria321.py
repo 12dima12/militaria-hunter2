@@ -217,7 +217,9 @@ class Militaria321Provider(BaseProvider):
                 items.append(item)
                 
             except Exception as e:
-                logger.warning(f"Error parsing item: {e}")
+                logger.error(f"Error parsing item: {e}")
+                import traceback
+                traceback.print_exc()
                 continue
         
         return items
