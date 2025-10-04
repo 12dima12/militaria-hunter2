@@ -349,9 +349,11 @@ metadata:
 
 test_plan:
   current_focus:
+    - "CRITICAL: Complete militaria321 provider implementation"
     - "Phase 1 posted_ts implementation complete"
     - "End-to-end bot testing with Telegram"
-  stuck_tasks: []
+  stuck_tasks:
+    - "CRITICAL: Complete militaria321 provider implementation"
   test_all: false
   test_priority: "high_first"
 
