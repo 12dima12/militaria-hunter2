@@ -216,7 +216,7 @@ async def cmd_delete(message: Message):
             polling_scheduler.remove_keyword_job(keyword.id)
         
         await message.answer(
-            f"Überwachung für \\"{keyword.original_keyword}\\" wurde gelöscht."
+            f"Überwachung für \"{keyword.original_keyword}\" wurde gelöscht."
         )
         
         logger.info(f"Keyword deleted: '{keyword.original_keyword}' (user {user.id})")
