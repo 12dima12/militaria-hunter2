@@ -157,7 +157,7 @@ async def cmd_check(message: Message):
         results = await search_service.full_recheck_crawl(keyword_text)
         
         # Format response with page/item counts per provider
-        response_lines = [f"Vollsuche abgeschlossen: \\"{keyword_text}\\""]
+        response_lines = [f"Vollsuche abgeschlossen: \"{keyword_text}\""]
         
         for platform_name in sorted(results.keys()):
             result = results[platform_name]
