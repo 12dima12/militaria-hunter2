@@ -271,10 +271,12 @@ class SearchService:
                 logger.info({
                     "event": "decision",
                     "platform": listing.platform,
+                    "keyword_norm": keyword.normalized_keyword or keyword.keyword.casefold(),
+                    "match_mode": "strict",  # current default is strict title-only matching
                     "listing_key": listing_key,
-                    "posted_ts_utc": str(getattr(listing, 'posted_ts', None)),
-                    "end_ts_utc": str(getattr(listing, 'end_ts', None)),
-                    "since_ts_utc": str(keyword.since_ts),
+                    "posted_ts_utc": (getattr(listing, 'posted_ts', None).astimezone(timezone.utc).isoformat().replace('+00:00','Z') if getattr(listing, 'posted_ts', None) else None),
+                    "end_ts_utc": (getattr(listing, 'end_ts', None).astimezone(timezone.utc).isoformat().replace('+00:00','Z') if getattr(listing, 'end_ts', None) else None),
+                    "since_ts_utc": keyword.since_ts.replace(tzinfo=timezone.utc).isoformat().replace('+00:00','Z'),
                     "decision": final_action,
                     "reason": reason,
                 })
