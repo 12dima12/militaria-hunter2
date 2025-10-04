@@ -142,18 +142,23 @@ async def perform_setup_search_with_count(message: Message, keyword, keyword_tex
             user_id=keyword.user_id
         )
         
+        # Check baseline status
+        keyword_updated = await keyword_service.get_keyword_by_id(keyword.id)
+        baseline_status = keyword_updated.baseline_status if keyword_updated else "unknown"
+        
         # Build confirmation header
         setup_text = f"**Suche eingerichtet: \"{keyword_text}\"**\n\n"
-        setup_text += "Baseline wurde vollständig erstellt. Ich benachrichtige Sie künftig nur bei neuen Angeboten.\n\n"
         
         # Add results per provider (deterministic alphabetical order)
         total_items_seeded = 0
+        failed_platforms = []
         
         for platform in sorted(seeding_results.keys()):
             result = seeding_results[platform]
             
             if result["error"]:
                 count_text = f"(Fehler: {result['error']})"
+                failed_platforms.append(platform)
             else:
                 count_text = f"{result['items_collected']} Treffer gefunden ({result['pages_scanned']} Seiten durchsucht)"
                 total_items_seeded += result["items_collected"]
@@ -165,8 +170,17 @@ async def perform_setup_search_with_count(message: Message, keyword, keyword_tex
         # Add placeholder for future platforms
         setup_text += "• **Weitere Plattformen**: in Vorbereitung\n\n"
         
-        # Add summary
-        setup_text += f"✅ **Baseline komplett**: {total_items_seeded} Angebote erfasst\n"
+        # Add status-specific summary
+        if baseline_status == "complete":
+            setup_text += f"✅ **Baseline vollständig**: {total_items_seeded} Angebote erfasst\n"
+            setup_text += "Ich benachrichtige Sie künftig nur bei neuen Angeboten.\n\n"
+        elif baseline_status == "partial":
+            setup_text += f"⚠️ **Baseline teilweise erstellt**: {total_items_seeded} Angebote erfasst\n"
+            setup_text += f"Fehler bei: {', '.join(failed_platforms)}\n\n"
+        elif baseline_status == "error":
+            setup_text += "❌ **Baseline-Erstellung fehlgeschlagen**\n"
+            setup_text += "Bitte versuchen Sie es erneut.\n\n"
+        
         setup_text += f"⏱️ Frequenz: Alle 60 Sekunden\n"
         setup_text += f"🔍 Verwenden Sie `/testen {keyword_text}` um Beispielergebnisse zu sehen."
         
