@@ -167,11 +167,12 @@ async def perform_first_run_sample(message: Message, keyword, keyword_text: str,
             # Mark sample items as seen
             await mark_sample_items_as_seen(keyword.id, keyword.user_id, search_result.items[:shown_count])
             
-            # Update keyword as first run completed
-            await keyword_service.update_keyword_first_run(keyword.id, True)
-            
         else:
-            sample_text = f"**Erste Treffer – militaria321.com**\n\n❌ Keine Treffer für **'{keyword_text}'** gefunden.\n\nDer Bot überwacht weiterhin und benachrichtigt Sie bei neuen Einträgen."
+            # Zero results - no fabrication
+            sample_text = f"**Erste Treffer – militaria321.com**\n\n*(keine Treffer gefunden)*\n\nDer Bot überwacht weiterhin und benachrichtigt Sie bei neuen Einträgen."
+        
+        # Update keyword as first run completed
+        await keyword_service.update_keyword_first_run(keyword.id, True)
         
         # Add management info
         sample_text += f"\n\n✅ **Suchbegriff aktiv**\n🔍 Begriff: **{keyword_text}**\n⏱️ Frequenz: Alle 60 Sekunden\n\nSie erhalten Benachrichtigungen bei neuen Treffern."
