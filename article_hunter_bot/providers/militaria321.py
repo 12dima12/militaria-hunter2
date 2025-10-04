@@ -223,6 +223,36 @@ class Militaria321Provider(BaseProvider):
         
         return items
     
+    def _extract_canonical_id(self, url: str, container) -> Optional[str]:
+        """Extract canonical numeric ID from militaria321 URL or container"""
+        # Try multiple patterns to extract numeric ID
+        patterns = [
+            r'auktion/(\d+)',           # /auktion/12345/...
+            r'auktion=(\d+)',           # ?auktion=12345
+            r'id=(\d+)',                # ?id=12345
+            r'(?:^|/)(\d{6,})',         # Any 6+ digit number in URL
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                return match.group(1)
+        
+        # Try to find "Auktions-Nr." in container text
+        if container:
+            text = container.get_text()
+            auktion_nr_match = re.search(r'Auktions?-Nr\.?\s*:?\s*(\d+)', text, re.IGNORECASE)
+            if auktion_nr_match:
+                return auktion_nr_match.group(1)
+        
+        # Fallback: extract any number from URL path
+        url_parts = url.split('/')
+        for part in url_parts:
+            if part.isdigit() and len(part) >= 4:  # At least 4 digits
+                return part
+        
+        return None
+    
     def _parse_price_from_container(self, container) -> tuple[Optional[float], Optional[str]]:
         """Extract price from item container"""
         try:
