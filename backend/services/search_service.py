@@ -282,9 +282,15 @@ class SearchService:
             results["new_notifications"] = len(new_notifications)
             
             # Per-run summary log
-            logger.info(f"[POLL SUMMARY] keyword='{keyword.keyword}', checked={results['matched_listings']}, "
-                       f"pushed={results['new_notifications']}, skipped_seen={results['skipped_seen']}, "
-                       f"skipped_old={results['skipped_old']}, skipped_duplicate={results['skipped_duplicate']}")
+            logger.info({
+                "event": "poll_summary",
+                "keyword": keyword.keyword,
+                "checked": results['matched_listings'],
+                "pushed": results['new_notifications'],
+                "skipped_seen": results['skipped_seen'],
+                "skipped_old": results['skipped_old'],
+                "skipped_duplicate": results['skipped_duplicate'],
+            })
             
             # Send notifications for truly new listings only
             if new_notifications and not keyword.is_muted:
