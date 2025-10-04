@@ -53,9 +53,10 @@ async def cmd_help(message: Message):
 
 **Suchbegriffe verwalten:** *(alle Befehle sind groß-/kleinschreibungsunabhängig)*
 /suche <Begriff> - Neuen Suchbegriff erstellen (zeigt sofort erste Treffer)
-/liste - Aktive Suchbegriffe anzeigen
+/liste - Aktive Suchbegriffe anzeigen  
 /testen <Begriff> - Aktuelle Treffer für Begriff anzeigen
 /aendern <Alt> <Neu> - Suchbegriff umbenennen
+/loeschen <Begriff> - Suchbegriff löschen (mit Bestätigung)
 
 **Einstellungen:**
 /pausieren <Begriff> - Suchbegriff pausieren
