@@ -141,7 +141,8 @@ class EgunProvider(BaseProvider):
             total_estimated = 0
             has_more = False
             
-            for page in range(1, max_pages + 1):
+            page = 1
+            while page <= max_pages:
                 page_listings, page_total, page_has_more = await self._fetch_page(query, page)
                 
                 if page_listings:
