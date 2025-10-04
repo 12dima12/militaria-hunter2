@@ -114,11 +114,14 @@ backend:
     file: "backend/providers/militaria321.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: true
         agent: "main"
         comment: "Fixed search parameter from 'wort' to 'q', updated parsing to extract titles from auction links correctly. Tested with Brieföffner (25 results), Kappmesser (8 results), Helm (73 results), uhr (19 results with no timestamp false positives)."
+      - working: true
+        agent: "testing"
+        comment: "✓ VERIFIED: Militaria321 search working perfectly. Brieföffner: 25 results, Kappmesser: 8 results, uhr: 19 results with NO timestamp false positives. Non-existent terms correctly return 0 results. Search parameter 'q' working correctly."
 
   - task: "Price parsing and German formatting"
     implemented: true
