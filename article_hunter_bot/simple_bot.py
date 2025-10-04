@@ -380,7 +380,7 @@ async def main():
     
     # Admin clear handlers (public access)
     router.message.register(cmd_admin_clear, Command("admin"))
-    router.message.register(cmd_admin_clear, Command("clear"))  # Alias for convenience
+    router.message.register(cmd_clear, Command("clear"))  # Alias for convenience
     router.callback_query.register(admin_clear_confirm, F.data == "admin_clear_confirm")
     router.callback_query.register(admin_clear_cancel, F.data == "admin_clear_cancel")
     
