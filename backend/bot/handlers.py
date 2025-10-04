@@ -109,12 +109,12 @@ async def cmd_search(message: Message):
     # Show "searching" message
     searching_msg = await message.answer("🔍 **Suche läuft...**\n\nSuche erste Treffer für Ihren Begriff.", parse_mode="Markdown")
     
-    # Create new keyword
+    # Create new keyword or reset existing one
     try:
         keyword = await keyword_service.create_keyword(user.id, keyword_text)
         
-        # Perform first-run sample search
-        await perform_first_run_sample(message, keyword, keyword_text, searching_msg)
+        # Perform setup search with count reporting
+        await perform_setup_search_with_count(message, keyword, keyword_text, searching_msg)
         
     except Exception as e:
         logger.error(f"Error creating keyword: {e}")
