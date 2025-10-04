@@ -210,6 +210,78 @@ backend:
         agent: "main"
         comment: "Updated perform_setup_search_with_count() to query all providers, render separate blocks per provider with header 'Erste Treffer – {platform}', show exactly top 3 items with German-formatted prices, append correct suffix lines ((X weitere Treffer), (weitere Treffer verfügbar), or (keine Treffer gefunden)). Seeds baseline per provider to prevent duplicate notifications."
 
+  - task: "Phase 1: Models posted_ts support"
+    implemented: true
+    working: true
+    file: "backend/models.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✓ VERIFIED: Both Listing and StoredListing models correctly support optional posted_ts field (UTC-aware datetime). No serialization issues detected. Models can store and retrieve posted_ts values correctly."
+
+  - task: "Phase 1: Militaria321 posted_ts parsing"
+    implemented: true
+    working: true
+    file: "backend/providers/militaria321.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✓ VERIFIED: _parse_posted_ts_from_text() correctly parses German dates like '04.10.2025 13:21 Uhr' from HTML. Handles Berlin timezone conversion to UTC. Tested 3 different HTML patterns including dt/dd, table rows, and plain text formats."
+
+  - task: "Phase 1: Militaria321 fetch_posted_ts_batch"
+    implemented: true
+    working: true
+    file: "backend/providers/militaria321.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✓ VERIFIED: fetch_posted_ts_batch() method working correctly. Processes multiple listings concurrently (tested with concurrency=4), performs detail page GETs, extracts posted_ts from German date formats, and updates listing objects in-place. Proper error handling for failed requests."
+
+  - task: "Phase 1: Strict gating logic (is_new_listing)"
+    implemented: true
+    working: true
+    file: "backend/services/search_service.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✓ VERIFIED: is_new_listing() function implements strict gating correctly. (a) Items with posted_ts older than since_ts return False, (b) Items with posted_ts >= since_ts return True, (c) Items without posted_ts and subscription > 60min return False, (d) Items without posted_ts within 60min grace period return True. All 5 test scenarios passed."
+
+  - task: "Phase 1: SearchService enrichment step"
+    implemented: true
+    working: true
+    file: "backend/services/search_service.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✓ VERIFIED: SearchService.search_keyword() includes enrichment step that calls fetch_posted_ts_batch() for militaria321 items not in seen_set before applying gating logic. Concurrency capped at 4 requests. Integration working correctly with provider methods."
+
+  - task: "Phase 1: Logging and stability"
+    implemented: true
+    working: true
+    file: "backend/providers/militaria321.py, backend/services/search_service.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✓ VERIFIED: No syntax errors or encoding artifacts (&lt;, &gt;) found in source files. All critical modules import successfully. Militaria321Provider instantiates correctly with required methods. Bot scheduler can start without crashes."
+
 frontend:
   - task: "N/A - Backend bot only"
     implemented: false
