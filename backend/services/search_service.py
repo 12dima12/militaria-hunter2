@@ -154,15 +154,17 @@ class SearchService:
                 seen_this_run.add(listing_key)
                 
                 # GUARD 2: Skip if already in seen_set
-                if listing_key in keyword.seen_listing_keys:
+                in_seen_set_before = listing_key in keyword.seen_listing_keys
+                if in_seen_set_before:
                     results["skipped_seen"] += 1
-                    logger.debug(f"Skipping seen listing: {listing_key}")
+                    logger.debug(f"[GUARD 2] Skipped (already seen): {listing_key}")
                     continue
                 
                 # GUARD 3: posted_ts gating - check if truly new
-                if not is_new_listing(listing, keyword.since_ts, now, grace_minutes=60):
+                is_new = is_new_listing(listing, keyword.since_ts, now, grace_minutes=60)
+                if not is_new:
                     results["skipped_old"] += 1
-                    logger.debug(f"Skipping old listing: {listing_key} (posted before subscription or outside grace window)")
+                    logger.debug(f"[GUARD 3] Absorbed to baseline (old/no timestamp): {listing_key}")
                     # Add to seen set but don't notify
                     await self.db.add_to_seen_set_batch(keyword.id, [listing_key])
                     continue
