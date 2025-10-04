@@ -311,10 +311,7 @@ class TelegramBotManager:
         
         # Create dispatcher
         self.dp = Dispatcher()
-        
-        # Only include router if not already included
-        if router not in self.dp._routers:
-            self.dp.include_router(router)
+        self.dp.include_router(router)
         
         logger.info("Telegram bot initialized")
     
