@@ -522,14 +522,37 @@ class SearchService:
                 
             except Exception as e:
                 duration_ms = int((time.time() - start_time) * 1000)
-                logger.error(f"Error seeding baseline for {platform}: {e}")
+                error_msg = str(e)
+                logger.error(f"Error seeding baseline for {platform}: {error_msg}")
                 results[platform] = {
                     "pages_scanned": pages_scanned,
                     "items_collected": items_collected,
                     "keys_added": keys_added_count,
                     "duration_ms": duration_ms,
-                    "error": str(e)
+                    "error": error_msg
                 }
+        
+        # Determine overall baseline status
+        all_succeeded = all(r.get("error") is None for r in results.values())
+        any_failed = any(r.get("error") is not None for r in results.values())
+        
+        if all_succeeded:
+            baseline_status = "complete"
+            baseline_errors = {}
+        elif any_failed:
+            baseline_status = "partial" if any(r.get("error") is None for r in results.values()) else "error"
+            baseline_errors = {platform: r["error"] for platform, r in results.items() if r.get("error")}
+        else:
+            baseline_status = "complete"
+            baseline_errors = {}
+        
+        # Update keyword baseline status
+        await self.db.update_keyword(keyword_id, {
+            "baseline_status": baseline_status,
+            "baseline_errors": baseline_errors
+        })
+        
+        logger.info(f"Baseline seeding final status: {baseline_status}, errors: {baseline_errors}")
         
         return results
 
