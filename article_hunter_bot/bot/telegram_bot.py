@@ -18,7 +18,8 @@ from services.notification_service import NotificationService
 logger = logging.getLogger(__name__)
 
 # Create router for handlers
-router = Router()
+def create_router():
+    return Router()
 
 # Global services (set by main application)
 db_manager: Optional[DatabaseManager] = None
