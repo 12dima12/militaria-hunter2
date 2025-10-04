@@ -301,9 +301,15 @@ async def cmd_test(message: Message):
 
     # Lookup user keyword to get provider list
     keyword = await keyword_service.get_user_keyword(user.id, keyword_text)
+    # Wenn nicht vorhanden, temporären Keyword-Container bauen (nur für Testlauf)
     if not keyword:
-        await message.answer(f"❌ Suchbegriff **'{keyword_text}'** nicht gefunden.\n\nVerwenden Sie `/suche {keyword_text}` um ihn anzulegen.", parse_mode="Markdown")
-        return
+        keyword = Keyword(
+            user_id=user.id,
+            keyword=keyword_text,
+            normalized_keyword=keyword_text.strip().casefold(),
+            platforms=["egun.de", "militaria321.com"],
+            frequency_seconds=60,
+        )
 
     # Show "testing" message
     testing_msg = await message.answer("🧪 **Vollständige Prüfung läuft...**\n\nDurchsuche alle Seiten für aktuelle Treffer.", parse_mode="Markdown")
