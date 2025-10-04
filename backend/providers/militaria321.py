@@ -231,27 +231,7 @@ class Militaria321Provider(BaseProvider):
                             logger.info(f"Using selector '{selector}' - found {len(filtered)} non-nav elements")
                             break
             
-            listing_elements = []
-            for selector in listing_selectors:
-                elements = soup.select(selector)
-                if elements:
-                    listing_elements = elements
-                    logger.debug(f"Using selector '{selector}' - found {len(elements)} elements")
-                    break
-            
-            # Fallback: look for links that might be listings
-            if not listing_elements:
-                listing_elements = soup.select('a[href*="/item/"], a[href*="/product/"], a[href*="/listing/"], a[href*="/auction/"]')
-                if listing_elements:
-                    logger.debug(f"Fallback: found {len(listing_elements)} potential listing links")
-            
-            # If still no results, try more generic approach
-            if not listing_elements:
-                # Look for any container that might hold listings
-                containers = soup.select('div[class*="result"], div[class*="item"], div[class*="product"], div[class*="listing"]')
-                if containers:
-                    listing_elements = containers[:20]  # Limit to reasonable number
-                    logger.debug(f"Generic approach: found {len(listing_elements)} potential containers")
+            # listing_elements is now set above
             
             # Parse individual listings
             for element in listing_elements[:50]:  # Limit to 50 results per page
