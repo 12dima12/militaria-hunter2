@@ -316,6 +316,18 @@ backend:
         agent: "testing"
         comment: "✓ VERIFIED: No syntax errors or encoding artifacts (&lt;, &gt;) found in source files. All critical modules import successfully. Militaria321Provider instantiates correctly with required methods. Bot scheduler can start without crashes."
 
+  - task: "CRITICAL: Complete militaria321 provider implementation"
+    implemented: false
+    working: false
+    file: "backend/providers/militaria321.py"
+    stuck_count: 1
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: false
+        agent: "testing"
+        comment: "✗ CRITICAL: militaria321.py file is TRUNCATED at line 252. Missing essential methods: _fetch_page(), _parse_posted_ts_from_text(), fetch_posted_ts_batch(). All searches return 0 results. Complete implementation available in /app/article_hunter_bot/providers/militaria321.py. Current working methods: build_query(), matches_keyword(), parse_price(), format_price_de()."
+
 frontend:
   - task: "N/A - Backend bot only"
     implemented: false
