@@ -312,4 +312,186 @@ class SearchService:
                 }
         
         return results
+
+    async def full_baseline_seed(self, keyword_text: str, keyword_id: str, user_id: str, providers_filter: List[str] = None) -> Dict[str, Dict[str, Any]]:
+        """
+        Perform full baseline seeding across ALL pages for each provider.
+        
+        This crawls every page of search results and adds all listing keys to seen_set.
+        NO notifications are sent during seeding.
+        
+        Returns: {platform: {pages_scanned, items_collected, keys_added, duration_ms, error}}
+        """
+        import time
+        import random
+        
+        if providers_filter is None:
+            providers_filter = list(self.providers.keys())
+        
+        results = {}
+        SEED_HARD_CAP = 5000  # Global page limit to prevent runaway
+        total_pages_scanned = 0
+        
+        for platform in providers_filter:
+            if platform not in self.providers:
+                results[platform] = {
+                    "pages_scanned": 0,
+                    "items_collected": 0,
+                    "keys_added": 0,
+                    "duration_ms": 0,
+                    "error": f"Provider {platform} not found"
+                }
+                continue
+            
+            start_time = time.time()
+            provider = self.providers[platform]
+            pages_scanned = 0
+            items_collected = 0
+            keys_added_count = 0
+            visited_urls = set()  # Loop detection
+            
+            try:
+                # Build initial search URL
+                query = provider.build_query(keyword_text)
+                
+                # Start with first page
+                current_url = None
+                if platform == "militaria321.com":
+                    params = {'q': query}
+                    from urllib.parse import urlencode
+                    current_url = f"{provider.search_url}?{urlencode(params)}"
+                elif platform == "egun.de":
+                    params = {
+                        'mode': 'qry',
+                        'plusdescr': 'off',
+                        'wheremode': 'and',
+                        'query': query,
+                        'quick': '1'
+                    }
+                    from urllib.parse import urlencode
+                    current_url = f"{provider.search_url}?{urlencode(params)}"
+                else:
+                    # Generic fallback
+                    current_url = provider.search_url
+                
+                logger.info(f"Starting full baseline seed for '{keyword_text}' on {platform}")
+                
+                # Persistent HTTP client
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
+                    'Accept-Encoding': 'br, gzip, deflate',
+                }
+                
+                async with httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
+                    while current_url and pages_scanned < SEED_HARD_CAP:
+                        # Check for loop
+                        if current_url in visited_urls:
+                            logger.warning(f"Pagination loop detected at {current_url}, stopping")
+                            break
+                        visited_urls.add(current_url)
+                        
+                        # Rate limiting with jitter
+                        if pages_scanned > 0:
+                            jitter = random.uniform(0.25, 0.75)
+                            await asyncio.sleep(jitter)
+                        
+                        try:
+                            # Fetch page with retries on rate limit
+                            max_retries = 3
+                            for attempt in range(max_retries):
+                                try:
+                                    response = await client.get(current_url)
+                                    
+                                    if response.status_code == 429:
+                                        # Rate limited
+                                        backoff = (2 ** attempt) * 0.5
+                                        logger.warning(f"Rate limited on {platform}, backing off {backoff}s")
+                                        await asyncio.sleep(backoff)
+                                        continue
+                                    
+                                    response.raise_for_status()
+                                    break
+                                    
+                                except httpx.HTTPStatusError as e:
+                                    if e.response.status_code >= 500 and attempt < max_retries - 1:
+                                        backoff = (2 ** attempt) * 0.5
+                                        logger.warning(f"Server error on {platform}, retrying in {backoff}s")
+                                        await asyncio.sleep(backoff)
+                                        continue
+                                    raise
+                            
+                            # Set encoding
+                            if response.encoding is None or response.encoding.lower() == 'iso-8859-1':
+                                response.encoding = 'utf-8'
+                            
+                            # Parse HTML
+                            from bs4 import BeautifulSoup
+                            soup = BeautifulSoup(response.text, 'html.parser')
+                            
+                            # Parse items on this page
+                            page_items, _, _ = provider._parse_search_page(soup, keyword_text, pages_scanned + 1)
+                            
+                            items_on_page = len(page_items)
+                            items_collected += items_on_page
+                            
+                            # Batch add to seen_set
+                            if page_items:
+                                keys_batch = [f"{platform}:{item.platform_id}" for item in page_items]
+                                
+                                # Add to database in batch
+                                await self.db.add_to_seen_set_batch(keyword_id, keys_batch)
+                                keys_added_count += len(keys_batch)
+                            
+                            pages_scanned += 1
+                            total_pages_scanned += 1
+                            
+                            logger.debug(f"{platform} page {pages_scanned}: {items_on_page} items, total collected: {items_collected}")
+                            
+                            # Get next page URL
+                            next_url = provider._get_next_page_url(current_url, soup)
+                            
+                            if next_url:
+                                logger.debug(f"{platform} next page: {next_url}")
+                                current_url = next_url
+                            else:
+                                logger.info(f"{platform} reached last page at page {pages_scanned}")
+                                break
+                            
+                            # Global hard cap check
+                            if total_pages_scanned >= SEED_HARD_CAP:
+                                logger.warning(f"Hit global SEED_HARD_CAP of {SEED_HARD_CAP} pages, stopping all seeding")
+                                break
+                        
+                        except Exception as e:
+                            logger.error(f"Error fetching page {pages_scanned + 1} for {platform}: {e}")
+                            # Continue with next page or stop
+                            break
+                
+                duration_ms = int((time.time() - start_time) * 1000)
+                
+                results[platform] = {
+                    "pages_scanned": pages_scanned,
+                    "items_collected": items_collected,
+                    "keys_added": keys_added_count,
+                    "duration_ms": duration_ms,
+                    "error": None
+                }
+                
+                logger.info(f"Baseline seed complete for {platform}: {pages_scanned} pages, {items_collected} items, {keys_added_count} keys added, {duration_ms}ms")
+                
+            except Exception as e:
+                duration_ms = int((time.time() - start_time) * 1000)
+                logger.error(f"Error seeding baseline for {platform}: {e}")
+                results[platform] = {
+                    "pages_scanned": pages_scanned,
+                    "items_collected": items_collected,
+                    "keys_added": keys_added_count,
+                    "duration_ms": duration_ms,
+                    "error": str(e)
+                }
+        
+        return results
+
         return results
