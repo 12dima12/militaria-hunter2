@@ -100,10 +100,10 @@ async def cmd_search(message: Message):
         await message.answer("❌ Suchbegriff ist zu lang (max. 100 Zeichen).")
         return
     
-    # Check if keyword already exists
+    # Check if keyword already exists (case-insensitive)
     existing = await keyword_service.get_user_keyword(user.id, keyword_text)
     if existing:
-        await message.answer(f"⚠️ Suchbegriff **'{keyword_text}'** existiert bereits.", parse_mode="Markdown")
+        await message.answer(f"⚠️ Suchbegriff **'{existing.keyword}'** existiert bereits (gefunden als: {keyword_text}).", parse_mode="Markdown")
         return
     
     # Show "searching" message
