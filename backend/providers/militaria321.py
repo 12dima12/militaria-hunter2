@@ -1,11 +1,13 @@
 import httpx
 from bs4 import BeautifulSoup
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import logging
 import asyncio
 from urllib.parse import urljoin, quote_plus
 import re
+import unicodedata
+from decimal import Decimal, InvalidOperation
 
 from .base import BaseProvider
 from models import Listing, SearchResult
