@@ -329,78 +329,96 @@ async def cmd_resume(message: Message):
 
 @router.message(Command("testen"))
 async def cmd_test(message: Message):
-    """Handle /testen command - re-run sample search (case-insensitive)"""
+    """Handle /testen command - show sample blocks per provider (case-insensitive, provider-agnostic)"""
     user = await ensure_user(message.from_user)
     
-    args = message.text.split(" ", 1)
+    # Parse arguments: /testen <keyword> [provider_filter]
+    args = message.text.split()
     if len(args) < 2:
-        await message.answer("❌ Bitte geben Sie den zu testenden Suchbegriff an.\n\nBeispiel: `/testen Wehrmacht Helm`", parse_mode="Markdown")
+        await message.answer("❌ Bitte geben Sie den zu testenden Suchbegriff an.\n\nBeispiel: `/testen Pistole`\n\nOptional mit Filter: `/testen Pistole egun`", parse_mode="Markdown")
         return
     
-    keyword_text = args[1].strip()
+    keyword_text = " ".join(args[1:-1]) if len(args) > 2 and args[-1] in ["egun", "militaria"] else " ".join(args[1:])
+    provider_filter = args[-1] if len(args) > 2 and args[-1] in ["egun", "militaria"] else None
+    
+    # Map short names to full platform names
+    if provider_filter:
+        if provider_filter == "egun":
+            provider_filter = ["egun.de"]
+        elif provider_filter == "militaria":
+            provider_filter = ["militaria321.com"]
+    
     keyword = await keyword_service.get_user_keyword(user.id, keyword_text)
     
     if not keyword:
-        await message.answer(f"❌ Suchbegriff **'{keyword_text}'** nicht gefunden.", parse_mode="Markdown")
+        await message.answer(f"❌ Suchbegriff **'{keyword_text}'** nicht gefunden.\n\nVerwenden Sie `/suche {keyword_text}` um ihn anzulegen.", parse_mode="Markdown")
         return
     
     # Show "searching" message
     searching_msg = await message.answer("🔍 **Test läuft...**\n\nSuche aktuelle Treffer für Ihren Begriff.", parse_mode="Markdown")
     
-    # Perform sample search (without marking as seen)
+    # Perform sample search (without changing baseline)
     try:
-        from providers.militaria321 import Militaria321Provider
+        from services.search_service import SearchService
+        from decimal import Decimal
         
-        provider = Militaria321Provider()
-        search_result = await provider.search(keyword_text, sample_mode=True)
+        search_service = SearchService(db_manager)
+        sample_blocks = await search_service.get_sample_blocks(keyword_text, providers_filter=provider_filter, seed_baseline=False)
         
-        if search_result.items:
-            # Show top 3 results
-            sample_text = f"**Test-Ergebnisse – militaria321.com**\n\n"
+        # Build response with per-provider blocks
+        test_text = f"**Erster Trefferblock für \"{keyword_text}\"**\n"
+        test_text += "(Testansicht – keine Änderungen an der Überwachung)\n\n"
+        
+        # Render blocks in deterministic order (alphabetical)
+        for platform in sorted(sample_blocks.keys()):
+            block = sample_blocks[platform]
+            provider = block["provider"]
             
-            shown_count = min(3, len(search_result.items))
-            for i in range(shown_count):
-                item = search_result.items[i]
-                
-                # Format price using German locale
-                price_str = ""
-                if item.price_value and item.price_currency:
-                    from decimal import Decimal
-                    from providers.militaria321 import Militaria321Provider
-                    
-                    provider = Militaria321Provider()
-                    formatted_price = provider.format_price_de(Decimal(str(item.price_value)), item.price_currency)
-                    price_str = f" – {formatted_price}"
-                elif item.price_value:
-                    from decimal import Decimal
-                    from providers.militaria321 import Militaria321Provider
-                    
-                    provider = Militaria321Provider()
-                    formatted_price = provider.format_price_de(Decimal(str(item.price_value)), "EUR")
-                    price_str = f" – {formatted_price}"
-                
-                # Format location
-                location_str = ""
-                if item.location:
-                    location_str = f" – {item.location}"
-                
-                sample_text += f"{i+1}. [{item.title[:60]}...]({item.url}){price_str}{location_str}\n\n"
+            test_text += f"**Erste Treffer – {platform}**\n"
             
-            # Add "more results" line
-            remaining = len(search_result.items) - shown_count
-            if search_result.total_count and search_result.total_count > shown_count:
-                remaining = search_result.total_count - shown_count
-                sample_text += f"*({remaining} weitere Treffer)*"
-            elif remaining > 0:
-                sample_text += f"*({remaining} weitere Treffer)*"
-            elif search_result.has_more:
-                sample_text += f"*(weitere Treffer verfügbar)*"
-        else:
-            sample_text = f"**Test-Ergebnisse – militaria321.com**\n\n*(keine Treffer gefunden)*"
+            if block["error"]:
+                test_text += f"(Fehler: {block['error']})\n\n"
+                continue
+            
+            if not block["matched_items"]:
+                test_text += "(keine Treffer gefunden)\n\n"
+                continue
+            
+            # Show exactly top 3 items
+            for i, item in enumerate(block["matched_items"], 1):
+                # Format price
+                if item.price_value:
+                    price_formatted = provider.format_price_de(
+                        Decimal(str(item.price_value)),
+                        item.price_currency or "EUR"
+                    )
+                else:
+                    price_formatted = "N/A"
+                
+                test_text += f"{i}) {item.title} – {price_formatted} – {item.url}\n"
+            
+            # Add suffix line
+            if block["total_count"] and block["total_count"] > 3:
+                more_count = block["total_count"] - 3
+                test_text += f"({more_count} weitere Treffer)\n"
+            elif block["has_more"]:
+                test_text += "(weitere Treffer verfügbar)\n"
+            
+            test_text += "\n"
         
-        sample_text += f"\n\n🔍 Begriff: **{keyword.keyword}** (aktiv überwacht)"
+        test_text += f"🔍 Begriff: **{keyword.keyword}** (aktiv überwacht)"
         
-        await searching_msg.edit_text(sample_text, parse_mode="Markdown")
+        # Create inline keyboard with refresh buttons per provider
+        keyboard_rows = []
+        for platform in sorted(sample_blocks.keys()):
+            platform_short = platform.split(".")[0]  # "egun" or "militaria321"
+            keyboard_rows.append([
+                InlineKeyboardButton(text=f"🔄 Aktualisieren – {platform}", callback_data=f"retest:{platform_short}:{keyword.id}")
+            ])
+        
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+        
+        await searching_msg.edit_text(test_text, parse_mode="Markdown", reply_markup=keyboard)
         
     except Exception as e:
         logger.error(f"Error performing test search: {e}")
