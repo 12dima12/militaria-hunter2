@@ -223,6 +223,35 @@ async def cmd_list(message: Message):
         await message.answer("📝 Sie haben noch keine Suchbegriffe erstellt.\n\nVerwenden Sie `/suche <Begriff>` um zu beginnen.", parse_mode="Markdown")
         return
     
+@router.message(Command("debugtimestamp"))
+async def debug_timestamp(message: types.Message):
+    """Admin-only: Show 3 sample items per provider with timestamp gating info"""
+    user_id = message.from_user.id
+    admin_telegram_ids = os.environ.get("ADMIN_TELEGRAM_IDS", "").split(",")
+    if str(user_id) not in [x.strip() for x in admin_telegram_ids if x.strip()]:
+        await message.answer("❌ Nicht erlaubt")
+        return
+    parts = message.text.strip().split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("❌ Bitte geben Sie den Suchbegriff an. Beispiel: /debugtimestamp messer")
+        return
+    keyword_text = parts[1]
+
+    from services.search_service import SearchService
+    from database import db_manager
+    service = SearchService(db_manager)
+    blocks = await service.get_sample_blocks(keyword_text, seed_baseline=False)
+
+    lines = [f"🛠️ Timestamp-Debug für '{keyword_text}':"]
+    for platform, data in blocks.items():
+        items = data.get("matched_items", [])[:3]
+        lines.append(f"\n— {platform} —")
+        for it in items:
+            posted = getattr(it, 'posted_ts', None)
+            endts = getattr(it, 'end_ts', None)
+            lines.append(f"• {it.title[:60]}\n  posted_ts={posted} | end_ts={endts}")
+    await message.answer("\n".join(lines))
+
     text = "📋 **Ihre Suchbegriffe:**\n\n"
     
     for keyword in keywords:
