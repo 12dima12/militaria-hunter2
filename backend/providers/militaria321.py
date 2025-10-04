@@ -220,7 +220,7 @@ class Militaria321Provider(BaseProvider):
             return SearchResult(
                 items=unique_listings,
                 total_count=total_estimated if total_estimated > 0 else None,
-                has_more=has_more or len(unique_listings) &gt;= 20  # Assume more if we got many results
+                has_more=has_more or len(unique_listings) >= 20  # Assume more if we got many results
             )
             
         except Exception as e:
