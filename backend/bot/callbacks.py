@@ -84,7 +84,7 @@ async def callback_pause_keyword(callback_query: CallbackQuery):
         status_text = "fortgesetzt" if new_status else "pausiert"
         status_emoji = "▶️" if new_status else "⏸️"
         
-        # Update keyboard
+        # Update keyboard (delete disabled)
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text="📊 Statistiken", callback_data=f"stats_{keyword.id}"),
@@ -94,8 +94,8 @@ async def callback_pause_keyword(callback_query: CallbackQuery):
                 )
             ],
             [
-                InlineKeyboardButton(text="⚙️ Einstellungen", callback_data=f"settings_{keyword.id}"),
-                InlineKeyboardButton(text="🗑️ Löschen", callback_data=f"delete_{keyword.id}")
+                InlineKeyboardButton(text="🔄 Erneut testen", callback_data=f"retest_{keyword.id}"),
+                InlineKeyboardButton(text="🔇 Stummschalten", callback_data=f"mute_30m_{keyword.id}")
             ]
         ])
         
