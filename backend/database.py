@@ -266,6 +266,38 @@ class DatabaseManager:
         """
         if not listing_keys:
             return True
+
+    async def create_notification_idempotent(self, user_id: str, keyword_id: str, listing_key: str, notification_data: dict) -> bool:
+        """
+        Create a notification with idempotency guard.
+        
+        Returns:
+            True if notification was created (first time)
+            False if notification already exists (duplicate, skip sending)
+        """
+        try:
+            # Add idempotency fields
+            notification_data.update({
+                "user_id": user_id,
+                "keyword_id": keyword_id,
+                "listing_key": listing_key,
+                "sent_at": datetime.utcnow()
+            })
+            
+            # Try to insert - will fail if duplicate key exists
+            await self.db.notifications.insert_one(notification_data)
+            return True
+            
+        except Exception as e:
+            # Check if it's a duplicate key error
+            if "duplicate key error" in str(e).lower() or "E11000" in str(e):
+                logger.debug(f"Duplicate notification prevented: {listing_key}")
+                return False
+            else:
+                # Other error - re-raise
+                logger.error(f"Error creating notification: {e}")
+                raise
+
         
         try:
             result = await self.db.keywords.update_one(
