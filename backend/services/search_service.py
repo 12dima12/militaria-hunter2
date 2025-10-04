@@ -295,8 +295,8 @@ class SearchService:
                     "keyword_norm": keyword.normalized_keyword or keyword.keyword.casefold(),
                     "match_mode": match_mode,
                     "listing_key": listing_key,
-                    "posted_ts_utc": (getattr(listing, 'posted_ts', None).astimezone(timezone.utc).isoformat().replace('+00:00','Z') if getattr(listing, 'posted_ts', None) else None),
-                    "end_ts_utc": (getattr(listing, 'end_ts', None).astimezone(timezone.utc).isoformat().replace('+00:00','Z') if getattr(listing, 'end_ts', None) else None),
+                    "posted_ts_utc": _to_utc_iso(getattr(listing, 'posted_ts', None)),
+                    "end_ts_utc": _to_utc_iso(getattr(listing, 'end_ts', None)),
                     "since_ts_utc": keyword.since_ts.replace(tzinfo=timezone.utc).isoformat().replace('+00:00','Z'),
                     "decision": final_action,
                     "reason": reason,
@@ -509,121 +509,41 @@ class SearchService:
                 }
         
         return results
-    
-    async def full_baseline_seed(self, keyword_text: str, keyword_id: str, user_id: str, providers_filter: List[str] = None) -> Dict[str, Dict[str, Any]]:
-        """
-        Perform full baseline seeding across ALL pages for each provider.
-        
-        This crawls every page of search results and adds all listing keys to seen_set.
-        NO notifications are sent during seeding.
-        
-        Returns: {platform: {pages_scanned, items_collected, keys_added, duration_ms, error}}
-        """
-        import time
-        import random
-        
+
+    async def crawl_all_counts(self, keyword: Keyword, providers_filter: List[str] = None, update_db: bool = True) -> Dict[str, Dict[str, Any]]:
+        """Full crawl per provider and (optionally) upsert listings. Returns counts per provider."""
         if providers_filter is None:
-            providers_filter = list(self.providers.keys())
-        
-        results = {}
-        # SEED_HARD_CAP reserved for future hard cap enforcement to avoid runaway pagination
-        # total_pages_scanned reserved for future metrics
-        
+            providers_filter = keyword.platforms
+        results: Dict[str, Dict[str, Any]] = {}
         for platform in providers_filter:
             if platform not in self.providers:
-                results[platform] = {
-                    "pages_scanned": 0,
-                    "items_collected": 0,
-                    "keys_added": 0,
-                    "duration_ms": 0,
-                    "error": f"Provider {platform} not found"
-                }
+                results[platform] = {"pages_scanned": 0, "items_found": 0, "error": f"Provider {platform} not found"}
                 continue
-            
-            start_time = time.time()
             provider = self.providers[platform]
-            pages_scanned = 0
-            items_collected = 0
-            keys_added_count = 0
-            # visited_urls = set()  # Loop detection
-            
             try:
-                logger.info(f"Starting full baseline seed for '{keyword_text}' on {platform}")
-                
-                # Full crawl: ask provider to return ALL pages (no notifications during seeding)
-                all_items = []
-                page_batches = 0
-                # provider.search will handle pagination internally when crawl_all=True
-                search_result = await provider.search(keyword_text, since_ts=None, sample_mode=False, crawl_all=True)
-                all_items.extend(search_result.items or [])
-                items_collected = len(all_items)
-                pages_scanned = 0  # unknown here; providers will iterate internally
-                
-                logger.info(f"{platform}: collected {items_collected} items using provider search")
-                # Batch add to seen_set using stable keys
-                if all_items:
-                    from utils.listing_key import build_listing_key
-                    keys_batch = []
-                    for item in all_items:
-                        try:
-                            key = build_listing_key(platform, item.url)
-                            keys_batch.append(key)
-                        except ValueError as e:
-                            logger.warning(f"Skipping item during seeding due to key error: {e}")
-                            continue
-                    
-                    # Add to database in batch
-                    if keys_batch:
-                        await self.db.add_to_seen_set_batch(keyword_id, keys_batch)
-                        keys_added_count = len(keys_batch)
-                        logger.info(f"{platform}: added {keys_added_count} keys to seen_set")
-                
-                duration_ms = int((time.time() - start_time) * 1000)
-                
-                results[platform] = {
-                    "pages_scanned": pages_scanned,
-                    "items_collected": items_collected,
-                    "keys_added": keys_added_count,
-                    "duration_ms": duration_ms,
-                    "error": None
-                }
-                
-                logger.info(f"Baseline seed complete for {platform}: {pages_scanned} pages, {items_collected} items, {keys_added_count} keys added, {duration_ms}ms")
-                
+                sr = await provider.search(keyword.keyword, since_ts=None, sample_mode=False, crawl_all=True)
+                items = sr.items or []
+                pages = sr.pages_scanned or 0
+                if update_db and items:
+                    for it in items:
+                        stored = StoredListing(
+                            platform=it.platform,
+                            platform_id=it.platform_id,
+                            title=it.title,
+                            url=it.url,
+                            price_value=it.price_value,
+                            price_currency=it.price_currency,
+                            location=it.location,
+                            condition=it.condition,
+                            seller_name=it.seller_name,
+                            image_url=it.image_url,
+                            first_seen_ts=it.first_seen_ts or datetime.utcnow(),
+                            last_seen_ts=datetime.utcnow(),
+                            posted_ts=getattr(it, 'posted_ts', None),
+                            end_ts=getattr(it, 'end_ts', None),
+                        )
+                        await self.db.create_or_update_listing(stored)
+                results[platform] = {"pages_scanned": pages, "items_found": len(items), "error": None}
             except Exception as e:
-                duration_ms = int((time.time() - start_time) * 1000)
-                error_msg = str(e)
-                logger.error(f"Error seeding baseline for {platform}: {error_msg}")
-                results[platform] = {
-                    "pages_scanned": pages_scanned,
-                    "items_collected": items_collected,
-                    "keys_added": keys_added_count,
-                    "duration_ms": duration_ms,
-                    "error": error_msg
-                }
-        
-        # Determine overall baseline status
-        all_succeeded = all(r.get("error") is None for r in results.values())
-        any_failed = any(r.get("error") is not None for r in results.values())
-        
-        if all_succeeded:
-            baseline_status = "complete"
-            baseline_errors = {}
-        elif any_failed:
-            baseline_status = "partial" if any(r.get("error") is None for r in results.values()) else "error"
-            baseline_errors = {platform: r["error"] for platform, r in results.items() if r.get("error")}
-        else:
-            baseline_status = "complete"
-            baseline_errors = {}
-        
-        # Update keyword baseline status
-        await self.db.update_keyword(keyword_id, {
-            "baseline_status": baseline_status,
-            "baseline_errors": baseline_errors
-        })
-        
-        logger.info(f"Baseline seeding final status: {baseline_status}, errors: {baseline_errors}")
-        
-        return results
-
+                results[platform] = {"pages_scanned": 0, "items_found": 0, "error": str(e)}
         return results

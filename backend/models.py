@@ -25,8 +25,6 @@ class Listing:
     last_seen_ts: datetime = Field(default_factory=lambda: datetime.utcnow())
     # Platform posting/auction start timestamp (parsed from detail page); stored in UTC
     posted_ts: Optional[datetime] = None
-    # Optional auction/listing end timestamp (UTC)
-    end_ts: Optional[datetime] = None
 
 
 @dataclass
@@ -35,6 +33,7 @@ class SearchResult:
     items: List[Listing]
     total_count: Optional[int] = None  # total available results, if known
     has_more: bool = False
+    pages_scanned: Optional[int] = None
 
 
 # MongoDB Pydantic Models
@@ -87,7 +86,6 @@ class StoredListing(BaseModel):
     first_seen_ts: datetime = Field(default_factory=datetime.utcnow)
     last_seen_ts: datetime = Field(default_factory=datetime.utcnow)
     posted_ts: Optional[datetime] = None  # Platform posting/auction start timestamp (UTC)
-
     end_ts: Optional[datetime] = None     # Auction/listing end timestamp (UTC)
 
     class Config:

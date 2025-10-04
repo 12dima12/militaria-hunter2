@@ -253,11 +253,13 @@ async def cmd_list(message: Message):
     ])
 
     await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
-    
+
+
 @router.message(Command("debugtimestamp"))
 async def debug_timestamp(message: types.Message):
     """Admin-only: Show 3 sample items per provider with timestamp gating info"""
     user_id = message.from_user.id
+    import os
     admin_telegram_ids = os.environ.get("ADMIN_TELEGRAM_IDS", "").split(",")
     if str(user_id) not in [x.strip() for x in admin_telegram_ids if x.strip()]:
         await message.answer("❌ Nicht erlaubt")
@@ -283,32 +285,50 @@ async def debug_timestamp(message: types.Message):
             lines.append(f"• {it.title[:60]}\n  posted_ts={posted} | end_ts={endts}")
     await message.answer("\n".join(lines))
 
-    text = "📋 **Ihre Suchbegriffe:**\n\n"
-    
-    for keyword in keywords:
-        status_emoji = "✅" if keyword.is_active else "⏸️"
-        mute_emoji = "🔇" if keyword.is_muted else ""
-        
-        freq_text = f"{keyword.frequency_seconds}s"
-        if keyword.frequency_seconds >= 60:
-            freq_text = f"{keyword.frequency_seconds // 60}m"
-        
-        last_check = "Nie"
-        if keyword.last_checked:
-            last_check = keyword.last_checked.strftime("%d.%m. %H:%M")
-        
-        text += f"{status_emoji} **{keyword.keyword}** {mute_emoji}\n"
-        text += f"   📊 Frequenz: {freq_text} | 🕐 Letzter Check: {last_check}\n\n"
-    
-    # Add management buttons
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="➕ Neuer Begriff", callback_data="new_keyword"),
-            InlineKeyboardButton(text="📤 Exportieren", callback_data="export_keywords")
-        ]
-    ])
-    
-    await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
+
+@router.message(Command("testen", "teste"))
+async def cmd_test(message: Message):
+    """Handle /testen or /teste command - perform full crawl and return page/item counts per provider"""
+    user = await ensure_user(message.from_user)
+
+    # Parse arguments: /testen <keyword>
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer("❌ Bitte geben Sie den zu testenden Suchbegriff an.\n\nBeispiel: `/testen Pistole`", parse_mode="Markdown")
+        return
+
+    keyword_text = args[1].strip().strip('"')
+
+    # Lookup user keyword to get provider list
+    keyword = await keyword_service.get_user_keyword(user.id, keyword_text)
+    if not keyword:
+        await message.answer(f"❌ Suchbegriff **'{keyword_text}'** nicht gefunden.\n\nVerwenden Sie `/suche {keyword_text}` um ihn anzulegen.", parse_mode="Markdown")
+        return
+
+    # Show "testing" message
+    testing_msg = await message.answer("🧪 **Vollständige Prüfung läuft...**\n\nDurchsuche alle Seiten für aktuelle Treffer.", parse_mode="Markdown")
+
+    try:
+        from services.search_service import SearchService
+        search_service = SearchService(db_manager)
+        results = await search_service.crawl_all_counts(keyword, providers_filter=None, update_db=True)
+
+        # Build summary
+        text = f"**Vollsuche abgeschlossen: \"{keyword.keyword}\"**\n\n"
+        total_items = 0
+        for platform in sorted(results.keys()):
+            r = results[platform]
+            if r.get("error"):
+                text += f"• **{platform}**: Fehler: {r['error']}\n"
+            else:
+                text += f"• **{platform}**: {r['pages_scanned']} Seiten, {r['items_found']} Produkte\n"
+                total_items += r.get("items_found", 0)
+        text += f"\n🧾 Gesamt: {total_items} Produkte über alle Plattformen"
+
+        await testing_msg.edit_text(text, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Error performing full crawl test: {e}")
+        await testing_msg.edit_text("❌ Fehler beim Durchsuchen. Bitte später erneut versuchen.")
 
 
 @router.message(Command("loeschen"))
@@ -400,104 +420,6 @@ async def cmd_resume(message: Message):
     await keyword_service.update_keyword_status(keyword.id, is_active=True)
     
     await message.answer(f"▶️ Suchbegriff **'{keyword.keyword}'** wurde fortgesetzt.\n\nDie Suche läuft wieder.", parse_mode="Markdown")
-
-
-@router.message(Command("testen", "teste"))
-async def cmd_test(message: Message):
-    """Handle /testen command - show sample blocks per provider (case-insensitive, provider-agnostic)"""
-    user = await ensure_user(message.from_user)
-    
-    # Parse arguments: /testen <keyword> [provider_filter]
-    args = message.text.split()
-    if len(args) < 2:
-        await message.answer("❌ Bitte geben Sie den zu testenden Suchbegriff an.\n\nBeispiel: `/testen Pistole`\n\nOptional mit Filter: `/testen Pistole egun`", parse_mode="Markdown")
-        return
-    
-    keyword_text = " ".join(args[1:-1]) if len(args) > 2 and args[-1] in ["egun", "militaria"] else " ".join(args[1:])
-    provider_filter = args[-1] if len(args) > 2 and args[-1] in ["egun", "militaria"] else None
-    
-    # Map short names to full platform names
-    if provider_filter:
-        if provider_filter == "egun":
-            provider_filter = ["egun.de"]
-        elif provider_filter == "militaria":
-            provider_filter = ["militaria321.com"]
-    
-    keyword = await keyword_service.get_user_keyword(user.id, keyword_text)
-    
-    if not keyword:
-        await message.answer(f"❌ Suchbegriff **'{keyword_text}'** nicht gefunden.\n\nVerwenden Sie `/suche {keyword_text}` um ihn anzulegen.", parse_mode="Markdown")
-        return
-    
-    # Show "searching" message
-    searching_msg = await message.answer("🔍 **Test läuft...**\n\nSuche aktuelle Treffer für Ihren Begriff.", parse_mode="Markdown")
-    
-    # Perform sample search (without changing baseline)
-    try:
-        from services.search_service import SearchService
-        from decimal import Decimal
-        
-        search_service = SearchService(db_manager)
-        sample_blocks = await search_service.get_sample_blocks(keyword_text, providers_filter=provider_filter, seed_baseline=False)
-        
-        # Build response with per-provider blocks
-        test_text = f"**Erster Trefferblock für \"{keyword_text}\"**\n"
-        test_text += "(Testansicht – keine Änderungen an der Überwachung)\n\n"
-        
-        # Render blocks in deterministic order (alphabetical)
-        for platform in sorted(sample_blocks.keys()):
-            block = sample_blocks[platform]
-            provider = block["provider"]
-            
-            test_text += f"**Erste Treffer – {platform}**\n"
-            
-            if block["error"]:
-                test_text += f"(Fehler: {block['error']})\n\n"
-                continue
-            
-            if not block["matched_items"]:
-                test_text += "(keine Treffer gefunden)\n\n"
-                continue
-            
-            # Show exactly top 3 items
-            for i, item in enumerate(block["matched_items"], 1):
-                # Format price
-                if item.price_value:
-                    price_formatted = provider.format_price_de(
-                        Decimal(str(item.price_value)),
-                        item.price_currency or "EUR"
-                    )
-                else:
-                    price_formatted = "N/A"
-                
-                test_text += f"{i}) {item.title} – {price_formatted} – {item.url}\n"
-            
-            # Add suffix line
-            if block["total_count"] and block["total_count"] > 3:
-                more_count = block["total_count"] - 3
-                test_text += f"({more_count} weitere Treffer)\n"
-            elif block["has_more"]:
-                test_text += "(weitere Treffer verfügbar)\n"
-            
-            test_text += "\n"
-        
-        test_text += f"🔍 Begriff: **{keyword.keyword}** (aktiv überwacht)"
-        
-        # Create inline keyboard with refresh buttons per provider
-        keyboard_rows = []
-        for platform in sorted(sample_blocks.keys()):
-            platform_short = platform.split(".")[0]  # "egun" or "militaria321"
-            keyboard_rows.append([
-                InlineKeyboardButton(text=f"🔄 Aktualisieren – {platform}", callback_data=f"retest:{platform_short}:{keyword.id}")
-            ])
-        
-        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
-        
-        await searching_msg.edit_text(test_text, parse_mode="Markdown", reply_markup=keyboard)
-        
-    except Exception as e:
-        logger.error(f"Error performing test search: {e}")
-        await searching_msg.edit_text(f"❌ Fehler beim Testen von **'{keyword_text}'**.", parse_mode="Markdown")
 
 
 async def ensure_user(telegram_user) -> User:

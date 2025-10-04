@@ -134,12 +134,13 @@ class EgunProvider(BaseProvider):
         try:
             query = self.build_query(keyword)
             
-            # In sample_mode, fetch more pages for better total_count estimation
+            # In sample_mode, fetch a few pages; in crawl_all, iterate until no more pages
             max_pages = 3 if sample_mode and not crawl_all else (1 if not crawl_all else 10_000)
             
             all_listings = []
             total_estimated = 0
             has_more = False
+            pages_scanned_local = 0
             
             page = 1
             while page <= max_pages:
@@ -147,6 +148,7 @@ class EgunProvider(BaseProvider):
                 
                 if page_listings:
                     all_listings.extend(page_listings)
+                    pages_scanned_local += 1
                     
                     if page_total and total_estimated == 0:
                         total_estimated = page_total
@@ -189,12 +191,13 @@ class EgunProvider(BaseProvider):
             return SearchResult(
                 items=unique_listings,
                 total_count=total_estimated if total_estimated > 0 else None,
-                has_more=has_more or len(unique_listings) >= 50
+                has_more=has_more or len(unique_listings) >= 50,
+                pages_scanned=pages_scanned_local
             )
             
         except Exception as e:
             logger.error(f"Error searching egun.de for '{keyword}': {e}")
-            return SearchResult(items=[], total_count=0, has_more=False)
+            return SearchResult(items=[], total_count=0, has_more=False, pages_scanned=0)
     
     async def _fetch_page(self, query: str, page: int = 1) -> tuple[List[Listing], Optional[int], bool]:
         """Fetch a single page of listings"""
