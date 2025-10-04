@@ -23,9 +23,10 @@ class SearchService:
     async def search_keyword(self, keyword: Keyword) -> List[Listing]:
         """Search for new items for a keyword subscription
         
-        Returns only items that pass strict newness gating
+        Returns only items that pass strict newness gating with deduplication
         """
         all_new_items = []
+        seen_this_run = set()  # In-run deduplication
         
         # Get militaria321 provider
         provider = self.providers["militaria321.com"]
@@ -38,24 +39,55 @@ class SearchService:
                 crawl_all=False  # Polling mode - page 1 only
             )
             
-            # Enrich militaria321 items with posted_ts if not in seen set
-            unseen_items = []
+            # Build canonical listing keys and deduplicate in-run
+            canonical_items = []
             for item in result.items:
-                listing_key = f"{item.platform}:{item.platform_id}"
+                listing_key = self._build_canonical_listing_key(item)
+                
+                # Skip duplicates within this run
+                if listing_key in seen_this_run:
+                    logger.debug(f"Skipping in-run duplicate: {listing_key}")
+                    continue
+                
+                seen_this_run.add(listing_key)
+                
+                # Update item with canonical key for consistency
+                item.platform_id = listing_key.split(':', 1)[1]  # Extract ID part
+                canonical_items.append(item)
+            
+            # Enrich militaria321 items with posted_ts/price if not in seen set
+            unseen_items = []
+            for item in canonical_items:
+                listing_key = self._build_canonical_listing_key(item)
                 if listing_key not in keyword.seen_listing_keys:
                     unseen_items.append(item)
             
             if unseen_items:
-                # Fetch posted_ts for unseen militaria321 items
-                await provider.fetch_posted_ts_batch(unseen_items, concurrency=4)
+                # Fetch posted_ts and complete missing prices
+                await provider.fetch_posted_ts_batch(unseen_items, concurrency=3)
             
             # Apply strict newness gating
-            for item in result.items:
+            for item in canonical_items:
+                listing_key = self._build_canonical_listing_key(item)
+                
+                # Check if already seen
+                if listing_key in keyword.seen_listing_keys:
+                    logger.info({
+                        "event": "decision",
+                        "platform": item.platform,
+                        "listing_key": listing_key,
+                        "posted_ts_utc": item.posted_ts.isoformat() if item.posted_ts else None,
+                        "since_ts_utc": keyword.since_ts.isoformat(),
+                        "decision": "already_seen",
+                        "reason": "listing_key_in_seen_set"
+                    })
+                    continue
+                
+                # Apply newness gating
                 if self._is_new_listing(item, keyword):
                     all_new_items.append(item)
                     
                     # Log decision
-                    listing_key = f"{item.platform}:{item.platform_id}"
                     logger.info({
                         "event": "decision",
                         "platform": item.platform,
@@ -66,8 +98,7 @@ class SearchService:
                         "reason": "passed_newness_gate"
                     })
                 else:
-                    # Log why it was filtered out
-                    listing_key = f"{item.platform}:{item.platform_id}"
+                    # Item fails newness gate but should be added to seen set
                     reason = self._get_filter_reason(item, keyword)
                     logger.info({
                         "event": "decision",
@@ -75,14 +106,28 @@ class SearchService:
                         "listing_key": listing_key,
                         "posted_ts_utc": item.posted_ts.isoformat() if item.posted_ts else None,
                         "since_ts_utc": keyword.since_ts.isoformat(),
-                        "decision": reason,
-                        "reason": "filtered_by_newness_gate"
+                        "decision": "absorbed",
+                        "reason": reason
                     })
         
         except Exception as e:
             logger.error(f"Error searching {provider.platform_name}: {e}")
         
         return all_new_items
+    
+    def _build_canonical_listing_key(self, item: Listing) -> str:
+        """Build canonical listing key: militaria321.com:<numeric_id>"""
+        # Ensure platform is lowercase and normalized
+        platform = item.platform.lower().strip()
+        
+        # Extract numeric ID if platform_id contains extra data
+        numeric_id = re.search(r'(\d+)', item.platform_id)
+        if numeric_id:
+            clean_id = numeric_id.group(1)
+        else:
+            clean_id = item.platform_id
+        
+        return f"{platform}:{clean_id}"
     
     async def full_baseline_crawl(self, keyword_text: str) -> List[Listing]:
         """Perform full baseline crawl across ALL pages on militaria321.com
