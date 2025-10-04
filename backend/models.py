@@ -80,9 +80,6 @@ class StoredListing(BaseModel):
     price_currency: Optional[str] = None
     location: Optional[str] = None
     condition: Optional[str] = None
-    posted_ts: Optional[datetime] = None  # Platform posting/auction start timestamp (UTC)
-    end_ts: Optional[datetime] = None     # Auction/listing end timestamp (UTC)
-
     seller_name: Optional[str] = None
     seller_rating: Optional[float] = None
     listing_type: Optional[str] = None
