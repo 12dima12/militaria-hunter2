@@ -660,8 +660,8 @@ class Militaria321Provider(BaseProvider):
             date_part = m.group(1)
             time_part = m.group(2)
             dt_naive = datetime.strptime(f"{date_part} {time_part}", "%d.%m.%Y %H:%M")
-            dt_local = self._tz_berlin.localize(dt_naive)
-            dt_utc = dt_local.astimezone(pytz.utc)
+            dt_local = dt_naive.replace(tzinfo=self._tz_berlin)
+            dt_utc = dt_local.astimezone(ZoneInfo("UTC"))
             return dt_utc
         except Exception:
             return None
