@@ -336,16 +336,19 @@ class TelegramBotTester:
     async def test_bot_command_simulation(self):
         """Simulate bot command processing (without actual Telegram)"""
         try:
-            # Import bot handlers
-            from bot.handlers import ensure_user
+            # Import bot handlers and services
             from services.keyword_service import KeywordService
             from database import DatabaseManager
+            from bot import handlers
             
             # Initialize services
             db_manager = DatabaseManager()
             await db_manager.initialize()
             
             keyword_service = KeywordService(db_manager)
+            
+            # Set services in handlers module (required for ensure_user to work)
+            handlers.set_services(db_manager, keyword_service)
             
             # Create a test user object
             class MockTelegramUser:
@@ -358,7 +361,7 @@ class TelegramBotTester:
             mock_user = MockTelegramUser()
             
             # Test user creation/retrieval
-            user = await ensure_user(mock_user)
+            user = await handlers.ensure_user(mock_user)
             if user and user.telegram_id == 12345:
                 self.log_test_result("Bot User Management", True, f"User created/retrieved: {user.first_name}")
             else:
