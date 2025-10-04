@@ -427,38 +427,78 @@ class Militaria321Provider(BaseProvider):
                 return {}
     
     def _parse_posted_ts_from_html(self, soup: BeautifulSoup) -> Optional[datetime]:
-        """Parse posted timestamp from German HTML
-        
-        Looks for patterns like:
-        - "Auktionsbeginn: 04.10.2025 13:21 Uhr"
-        - "Eingestellt: 04.10.2025 13:21 Uhr"
-        """
+        """Parse posted timestamp from German HTML with comprehensive patterns"""
         try:
             text = soup.get_text()
             
-            # German date patterns
-            patterns = [
-                r'(?:Auktionsbeginn|Eingestellt)\s*:?\s*([0-9]{1,2}\.[0-9]{1,2}\.[0-9]{4})\s+([0-9]{1,2}:[0-9]{2})\s+Uhr',
-                r'([0-9]{1,2}\.[0-9]{1,2}\.[0-9]{4})\s+([0-9]{1,2}:[0-9]{2})\s+Uhr',
-            ]
+            # Comprehensive German date patterns for Auktionsstart/Eingestellt
+            pattern = (
+                r'(?i)(Auktionsstart|Auktionsbeginn|Eingestellt|Angebotsbeginn|Start)\s*:?\s*'
+                r'(\d{1,2}\.\d{1,2}\.\d{4})\s*(?:um\s*)?(\d{1,2}:\d{2})\s*Uhr'
+            )
             
-            for pattern in patterns:
-                match = re.search(pattern, text)
-                if match:
-                    date_str = match.group(1)  # "04.10.2025"
-                    time_str = match.group(2)  # "13:21"
-                    
-                    # Parse German date format
-                    dt_str = f"{date_str} {time_str}"
-                    dt_berlin = datetime.strptime(dt_str, "%d.%m.%Y %H:%M")
-                    
-                    # Convert from Berlin timezone to UTC
-                    dt_berlin = dt_berlin.replace(tzinfo=self.berlin_tz)
-                    dt_utc = dt_berlin.astimezone(timezone.utc).replace(tzinfo=None)
-                    
-                    return dt_utc
+            match = re.search(pattern, text)
+            if match:
+                label = match.group(1)  # "Auktionsstart"
+                date_str = match.group(2)  # "04.10.2025"
+                time_str = match.group(3)  # "13:21"
+                
+                # Parse German date format
+                dt_str = f"{date_str} {time_str}"
+                dt_berlin = datetime.strptime(dt_str, "%d.%m.%Y %H:%M")
+                
+                # Convert from Berlin timezone to UTC
+                dt_berlin = dt_berlin.replace(tzinfo=self.berlin_tz)
+                dt_utc = dt_berlin.astimezone(timezone.utc).replace(tzinfo=None)
+                
+                logger.debug(f"Parsed {label}: {date_str} {time_str} -> {dt_utc} UTC")
+                return dt_utc
+            
+            # Fallback: simple date pattern without label
+            fallback_pattern = r'(\d{1,2}\.\d{1,2}\.\d{4})\s*(?:um\s*)?(\d{1,2}:\d{2})\s*Uhr'
+            match = re.search(fallback_pattern, text)
+            if match:
+                date_str = match.group(1)
+                time_str = match.group(2)
+                
+                dt_str = f"{date_str} {time_str}"
+                dt_berlin = datetime.strptime(dt_str, "%d.%m.%Y %H:%M")
+                dt_berlin = dt_berlin.replace(tzinfo=self.berlin_tz)
+                dt_utc = dt_berlin.astimezone(timezone.utc).replace(tzinfo=None)
+                
+                return dt_utc
             
         except Exception as e:
             logger.warning(f"Error parsing posted_ts: {e}")
         
         return None
+    
+    def _parse_price_from_detail_page(self, soup: BeautifulSoup) -> tuple[Optional[float], Optional[str]]:
+        """Extract price from detail page if missing from search results"""
+        try:
+            text = soup.get_text()
+            
+            # Look for Startpreis/Sofort-Kauf patterns
+            price_patterns = [
+                r'(?i)Startpreis\s*:?\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)\s*€',
+                r'(?i)Sofort-?Kauf\s*:?\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)\s*€',
+                r'(?i)Preis\s*:?\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)\s*€',
+                r'([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)\s*€',  # Generic EUR pattern
+            ]
+            
+            for pattern in price_patterns:
+                match = re.search(pattern, text)
+                if match:
+                    price_str = match.group(1)
+                    # Convert German format to Decimal
+                    normalized = price_str.replace('.', '').replace(',', '.')
+                    try:
+                        price_value = float(Decimal(normalized))
+                        return price_value, "EUR"
+                    except (InvalidOperation, ValueError):
+                        continue
+            
+        except Exception as e:
+            logger.warning(f"Error parsing price from detail page: {e}")
+        
+        return None, None
