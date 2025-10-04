@@ -105,8 +105,29 @@ async def inspect_search_form():
                 auction_links = soup.find_all('a', href=lambda x: x and 'auktion' in str(x).lower())
                 print(f"  Found {len(auction_links)} auction-related links")
                 
+                # Show first few auction links
+                for i, link in enumerate(auction_links[:5]):
+                    href = link.get('href')
+                    text = link.get_text().strip()
+                    print(f"    {i+1}. {text[:60]} -> {href}")
+                
                 # This parameter works!
-                print(f"  >>> THIS PARAMETER WORKS: {params}")
+                print(f"\n  >>> THIS PARAMETER WORKS: {params}")
+                
+                # Try to find result containers
+                print("\n  Looking for result containers...")
+                
+                # Try different selectors
+                tr_with_bgcolor = soup.find_all('tr', bgcolor=True)
+                print(f"    Found {len(tr_with_bgcolor)} <tr> with bgcolor")
+                
+                tr_with_auktion = soup.find_all('tr', string=lambda x: x and 'brieföffner' in str(x).lower())
+                print(f"    Found {len(tr_with_auktion)} <tr> with 'brieföffner' in text")
+                
+                # Find all text containing "brieföffner"
+                all_text_nodes = soup.find_all(string=lambda x: x and 'brieföffner' in str(x).lower())
+                print(f"    Found {len(all_text_nodes)} text nodes with 'brieföffner'")
+                
                 break
             else:
                 print(f"  ✗ Search term NOT found in response")
