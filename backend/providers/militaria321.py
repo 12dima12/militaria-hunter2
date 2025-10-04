@@ -330,22 +330,19 @@ class Militaria321Provider(BaseProvider):
                 return [], total_count, has_more
             
             # Build unique listing containers from auction links
+            # Use the parent <tr> row as the container since it has all the details
             seen_containers = set()
             listing_containers = []
             
             for link in auction_links:
-                # Find parent container (usually a table row)
+                # Find parent table row
                 container = link.find_parent('tr')
-                if not container:
-                    container = link.find_parent('td')
-                if not container:
-                    container = link.find_parent('div')
                 
-                # Use link itself if no parent found
                 if not container:
-                    container = link
+                    # If no tr parent, skip this link
+                    continue
                 
-                # Avoid duplicate containers
+                # Avoid duplicate containers (multiple links might be in same row)
                 container_id = id(container)
                 if container_id not in seen_containers:
                     seen_containers.add(container_id)
