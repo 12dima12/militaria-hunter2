@@ -176,7 +176,7 @@ async def perform_first_run_sample(message: Message, keyword, keyword_text: str,
         # Add management info
         sample_text += f"\n\n✅ **Suchbegriff aktiv**\n🔍 Begriff: **{keyword_text}**\n⏱️ Frequenz: Alle 60 Sekunden\n\nSie erhalten Benachrichtigungen bei neuen Treffern."
         
-        # Create inline keyboard with management options (delete disabled)
+        # Create inline keyboard with management options
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text="📊 Statistiken", callback_data=f"stats_{keyword.id}"),
@@ -184,7 +184,7 @@ async def perform_first_run_sample(message: Message, keyword, keyword_text: str,
             ],
             [
                 InlineKeyboardButton(text="🔄 Erneut testen", callback_data=f"retest_{keyword.id}"),
-                InlineKeyboardButton(text="🔇 Stummschalten", callback_data=f"mute_30m_{keyword.id}")
+                InlineKeyboardButton(text="🗑️ Löschen", callback_data=f"delete_{keyword.id}")
             ]
         ])
         
