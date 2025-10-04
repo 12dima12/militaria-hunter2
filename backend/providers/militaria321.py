@@ -206,7 +206,7 @@ class Militaria321Provider(BaseProvider):
                         break
                     
                     # Small delay between pages to be respectful
-                    if page &lt; max_pages:
+                    if page < max_pages:
                         await asyncio.sleep(1)
             
             # Deduplicate listings by platform_id
