@@ -4,7 +4,7 @@ from typing import List, Optional
 import logging
 from datetime import datetime
 
-from models import User, Keyword, StoredListing, KeywordHit, Notification
+from models import User, Keyword, StoredListing, KeywordHit, Notification, DeleteAttemptLog
 
 logger = logging.getLogger(__name__)
 
