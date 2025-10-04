@@ -236,7 +236,7 @@ class Militaria321Provider(BaseProvider):
         try:
             # Build correct search parameters - militaria321 uses 'q' parameter
             params = {'q': query}
-            if page &gt; 1:
+            if page > 1:
                 params['startat'] = ((page - 1) * 50) + 1  # Pagination offset
             
             logger.info(f"GET search to militaria321 page {page} with params: {params}")
