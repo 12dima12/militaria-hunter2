@@ -352,6 +352,14 @@ async def main():
     router.message.register(cmd_search, Command("search"))
     router.message.register(cmd_check, Command("check"))
     router.message.register(cmd_delete, Command("delete"))
+    
+    # Admin clear handlers (public access)
+    router.message.register(cmd_admin_clear, Command("admin"))
+    router.message.register(cmd_admin_clear, Command("clear"))  # Alias for convenience
+    router.callback_query.register(admin_clear_confirm, F.data == "admin_clear_confirm")
+    router.callback_query.register(admin_clear_cancel, F.data == "admin_clear_cancel")
+    
+    # Callback handlers
     router.callback_query.register(handle_delete_keyword_callback, F.data.startswith("delete_keyword_"))
     
     # Include router
