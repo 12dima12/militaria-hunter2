@@ -372,3 +372,81 @@ async def callback_delete_keyword(callback_query: CallbackQuery):
     except Exception as e:
         logger.error(f"Error in delete callback: {e}")
         await callback_query.answer("❌ Fehler beim Löschen", show_alert=True)
+
+
+@callback_router.callback_query(lambda c: c.data.startswith("show_current_"))
+async def callback_show_current(callback_query: CallbackQuery):
+    """Show current matches for keyword (like old retest function)"""
+    await callback_query.answer()
+    
+    keyword_id = callback_query.data.split("_")[-1]
+    
+    try:
+        keyword = await keyword_service.get_keyword_by_id(keyword_id)
+        if not keyword:
+            await callback_query.answer("❌ Suchbegriff nicht gefunden", show_alert=True)
+            return
+        
+        # Check ownership
+        user = await db_manager.get_user_by_telegram_id(callback_query.from_user.id)
+        if not user or keyword.user_id != user.id:
+            await callback_query.answer("❌ Keine Berechtigung", show_alert=True)
+            return
+        
+        # Show "checking" message
+        checking_msg = await callback_query.message.answer("🔍 **Aktueller Stand wird geprüft...**", parse_mode="Markdown")
+        
+        # Perform search to show current matches
+        from providers.militaria321 import Militaria321Provider
+        
+        provider = Militaria321Provider()
+        search_result = await provider.search(keyword.keyword, sample_mode=True)
+        
+        # Apply title-only matching
+        matched_items = []
+        for item in search_result.items:
+            if provider.matches_keyword(item.title, keyword.keyword):
+                matched_items.append(item)
+        
+        if matched_items:
+            # Show top 3 current results
+            current_text = f"**Aktueller Stand – militaria321.com**\n\n📊 **Gefunden: {len(matched_items)} Treffer**\n\n"
+            
+            shown_count = min(3, len(matched_items))
+            for i in range(shown_count):
+                item = matched_items[i]
+                
+                # Format price using German locale  
+                price_str = ""
+                if item.price_value and item.price_currency:
+                    from decimal import Decimal
+                    
+                    formatted_price = provider.format_price_de(Decimal(str(item.price_value)), item.price_currency)
+                    price_str = f" – {formatted_price}"
+                elif item.price_value:
+                    from decimal import Decimal
+                    
+                    formatted_price = provider.format_price_de(Decimal(str(item.price_value)), "EUR")
+                    price_str = f" – {formatted_price}"
+                
+                # Format location
+                location_str = ""
+                if item.location:
+                    location_str = f" – {item.location}"
+                
+                current_text += f"{i+1}. [{item.title[:60]}...]({item.url}){price_str}{location_str}\n\n"
+            
+            # Add "more results" line if needed
+            if len(matched_items) > shown_count:
+                remaining = len(matched_items) - shown_count
+                current_text += f"*({remaining} weitere Treffer)*"
+        else:
+            current_text = f"**Aktueller Stand – militaria321.com**\n\n📊 **Keine Treffer für '{keyword.keyword}' gefunden**"
+        
+        current_text += f"\n\n🔍 Begriff: **{keyword.keyword}** (überwacht seit {keyword.since_ts.strftime('%d.%m.%Y %H:%M')})"
+        
+        await checking_msg.edit_text(current_text, parse_mode="Markdown")
+        
+    except Exception as e:
+        logger.error(f"Error showing current matches: {e}")
+        await callback_query.answer("❌ Fehler beim Laden der aktuellen Treffer", show_alert=True)
