@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  mongo:
+    image: mongo:6.0
+    container_name: article_hunter_mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_DATABASE: article_hunter
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "27017:27017"
+    networks:
+      - article_hunter_net
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: article_hunter_bot
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    env_file:
+      - .env
+    environment:
+      - MONGO_URL=mongodb://mongo:27017
+      - DB_NAME=article_hunter
+    networks:
+      - article_hunter_net
+    volumes:
+      - ./logs:/app/logs
+
+volumes:
+  mongo_data:
+
+networks:
+  article_hunter_net:
+    driver: bridge
