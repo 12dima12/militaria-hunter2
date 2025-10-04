@@ -133,6 +133,17 @@ class DatabaseManager:
                 return False
             raise
     
+    async def admin_clear_products(self) -> dict:
+        """Clear all stored products and delivery artifacts (admin clear command)"""
+        r1 = await self.db.listings.delete_many({})
+        r2 = await self.db.keyword_hits.delete_many({}) if hasattr(self.db, 'keyword_hits') else type('Result', (), {'deleted_count': 0})()
+        r3 = await self.db.notifications.delete_many({})
+        return {
+            "listings": r1.deleted_count,
+            "keyword_hits": r2.deleted_count,
+            "notifications": r3.deleted_count,
+        }
+    
     async def close(self):
         """Close database connection"""
         if self.client:
