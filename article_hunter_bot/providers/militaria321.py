@@ -186,12 +186,10 @@ class Militaria321Provider(BaseProvider):
                 
                 full_url = urljoin(self.BASE_URL, relative_url)
                 
-                # Extract platform_id from URL: auktion/<id>/... or /auktion/<id>/...
-                match = re.search(r'auktion/([^/]+)', relative_url)
-                if not match:
+                # Extract canonical numeric ID from URL (multiple patterns)
+                platform_id = self._extract_canonical_id(relative_url, container)
+                if not platform_id:
                     continue
-                
-                platform_id = match.group(1)
                 
                 # Extract title (from link text)
                 title = link.get_text(strip=True)
