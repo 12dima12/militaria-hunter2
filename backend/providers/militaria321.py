@@ -113,6 +113,9 @@ class Militaria321Provider(BaseProvider):
                 
                 # Debug: Log response details
                 logger.info(f"Response status: {response.status_code}, Content length: {len(response.content)}")
+                logger.info(f"Response encoding: {response.encoding}")
+                logger.info(f"Content-Type: {response.headers.get('content-type', 'unknown')}")
+                logger.info(f"Content-Encoding: {response.headers.get('content-encoding', 'none')}")
                 logger.debug(f"Response headers: {dict(response.headers)}")
                 
                 # Try to handle encoding issues
