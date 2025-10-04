@@ -99,8 +99,8 @@ class Militaria321Provider(BaseProvider):
         }
         
         try:
-            # Build search URL with query and page
-            search_params = f"?wort={quote_plus(query)}"
+            # Build search URL with query and page - try different parameter formats
+            search_params = f"?wort={quote_plus(query)}&act=auctions_search"
             if page > 1:
                 search_params += f"&page={page}"
             
