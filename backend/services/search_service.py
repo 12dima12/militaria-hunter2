@@ -159,6 +159,7 @@ class SearchService:
             logger.info(f"Keyword '{keyword.keyword}': {len(all_raw_listings)} raw -> {len(matched_listings)} matched")
             
             # Process each matched listing with all guards
+            # NOTE: Newness is gated ONLY by posted_ts (start time). end_ts is informational and NEVER used for gating.
             new_notifications = []
             now = datetime.now(timezone.utc)
             seen_this_run = set()  # IN-RUN DEDUPE: prevent duplicates within this poll cycle
