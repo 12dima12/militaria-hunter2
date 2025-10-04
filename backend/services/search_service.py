@@ -378,7 +378,7 @@ class SearchService:
                         logger.error(error_msg)
                     else:
                         results["keywords_processed"] += 1
-                        results["total_new_listings"] += result.get("new_listings", 0)
+                        results["total_new_listings"] += result.get("new_notifications", 0)
                         results["errors"].extend(result.get("errors", []))
                 
                 # Small delay between batches
