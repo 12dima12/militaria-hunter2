@@ -51,12 +51,11 @@ async def cmd_help(message: Message):
     """Handle /hilfe command"""
     help_text = """📋 **Befehlsübersicht:**
 
-**Suchbegriffe verwalten:**
+**Suchbegriffe verwalten:** *(alle Befehle sind groß-/kleinschreibungsunabhängig)*
 /suche <Begriff> - Neuen Suchbegriff erstellen (zeigt sofort erste Treffer)
 /liste - Aktive Suchbegriffe anzeigen
 /testen <Begriff> - Aktuelle Treffer für Begriff anzeigen
 /aendern <Alt> <Neu> - Suchbegriff umbenennen
-/loeschen <Begriff> - Suchbegriff löschen
 
 **Einstellungen:**
 /pausieren <Begriff> - Suchbegriff pausieren
@@ -69,13 +68,13 @@ async def cmd_help(message: Message):
 /export - Suchbegriffe als Datei exportieren
 
 **Beispiele:**
-`/suche "Wehrmacht Helm"` - Erstellt Begriff und zeigt Top 3 Treffer
-`/testen "Wehrmacht Helm"` - Zeigt aktuelle Top 3 Treffer
-`/frequenz "Wehrmacht Helm" 5m`
+`/suche "Wehrmacht Helm"` - Erstellt Begriff und zeigt echte Treffer oder "keine Treffer"
+`/testen "kappmesser"` - Zeigt aktuelle Treffer (groß-/kleinschreibungsunabhängig)
+`/pausieren "HELM"` - Funktioniert auch mit Großbuchstaben
 `/stumm "Wehrmacht Helm" 30m`
 
 **Plattform:** Militaria321.com
-**Erste Treffer:** Bei jedem neuen Suchbegriff sofort angezeigt"""
+**Hinweis:** Löschfunktion ist derzeit nicht verfügbar. Verwenden Sie /pausieren oder /stumm."""
 
     await message.answer(help_text, parse_mode="Markdown")
 
