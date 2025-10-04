@@ -22,31 +22,27 @@ class SearchService:
         self.notification_service = NotificationService(db_manager)
     
     async def search_keyword(self, keyword: Keyword) -> Dict[str, Any]:
-        """Search for a keyword across its platforms"""
+        """Search for a keyword and notify only for truly new listings"""
         results = {
             "keyword_id": keyword.id,
             "keyword_text": keyword.keyword,
-            "new_listings": 0,
-            "total_listings": 0,
+            "new_notifications": 0,
+            "matched_listings": 0,
+            "total_raw_listings": 0,
             "errors": []
         }
         
         try:
-            # Calculate since timestamp (last check or 1 hour ago)
-            since_ts = keyword.last_checked
-            if not since_ts:
-                since_ts = datetime.utcnow() - timedelta(hours=1)
-            
-            all_listings = []
-            
             # Search each platform
+            all_raw_listings = []
+            
             for platform in keyword.platforms:
                 if platform in self.providers:
                     try:
                         provider = self.providers[platform]
-                        search_result = await provider.search(keyword.keyword, since_ts, sample_mode=False)
-                        all_listings.extend(search_result.items)
-                        logger.info(f"Found {len(search_result.items)} listings for '{keyword.keyword}' on {platform}")
+                        search_result = await provider.search(keyword.keyword, sample_mode=False)
+                        all_raw_listings.extend(search_result.items)
+                        logger.debug(f"Raw search found {len(search_result.items)} listings for '{keyword.keyword}' on {platform}")
                         
                     except Exception as e:
                         error_msg = f"Error searching {platform}: {str(e)}"
@@ -57,13 +53,41 @@ class SearchService:
                     results["errors"].append(error_msg)
                     logger.warning(error_msg)
             
-            results["total_listings"] = len(all_listings)
+            results["total_raw_listings"] = len(all_raw_listings)
             
-            # Process listings
-            new_listings = []
-            for listing in all_listings:
-                try:
-                    # Convert to StoredListing
+            # Apply title-only matching to get relevant listings
+            matched_listings = []
+            provider = self.providers[keyword.platforms[0]]  # Use first platform's provider for matching
+            
+            for listing in all_raw_listings:
+                if provider.matches_keyword(listing.title, keyword.keyword):
+                    matched_listings.append(listing)
+            
+            results["matched_listings"] = len(matched_listings)
+            logger.info(f"Keyword '{keyword.keyword}': {len(all_raw_listings)} raw -> {len(matched_listings)} matched")
+            
+            # Check for truly new listings (not in seen_set and posted after since_ts)
+            new_notifications = []
+            
+            from services.keyword_service import KeywordService
+            keyword_service = KeywordService(self.db)
+            
+            for listing in matched_listings:
+                listing_key = keyword_service.make_listing_key(listing.platform, listing.platform_id)
+                
+                # Skip if already seen
+                if keyword_service.is_listing_seen(keyword, listing.platform, listing.platform_id):
+                    continue
+                
+                # Check if listing was posted after subscription start
+                # Since we don't have posting timestamp from militaria321, assume first_seen is posting time
+                is_new_posting = True
+                if listing.first_seen_ts and listing.first_seen_ts <= keyword.since_ts:
+                    is_new_posting = False
+                
+                # For listings without timestamp, consider them new if not in seen_set
+                if is_new_posting or not listing.first_seen_ts:
+                    # Store listing in database
                     stored_listing = StoredListing(
                         platform=listing.platform,
                         platform_id=listing.platform_id,
@@ -77,59 +101,29 @@ class SearchService:
                         seller_rating=listing.seller_rating,
                         listing_type=listing.listing_type,
                         image_url=listing.image_url,
-                        first_seen_ts=listing.first_seen_ts,
-                        last_seen_ts=listing.last_seen_ts
+                        first_seen_ts=listing.first_seen_ts or datetime.utcnow(),
+                        last_seen_ts=listing.last_seen_ts or datetime.utcnow()
                     )
                     
-                    # Check if listing is new
-                    existing = await self.db.get_listing_by_platform_id(
-                        listing.platform, listing.platform_id
-                    )
+                    await self.db.create_or_update_listing(stored_listing)
+                    new_notifications.append(stored_listing)
                     
-                    if not existing:
-                        # New listing
-                        await self.db.create_or_update_listing(stored_listing)
-                        new_listings.append(stored_listing)
-                        
-                        # Create keyword hit
-                        hit = KeywordHit(
-                            keyword_id=keyword.id,
-                            listing_id=stored_listing.id,
-                            user_id=keyword.user_id
-                        )
-                        await self.db.create_keyword_hit(hit)
-                        
-                        logger.info(f"New listing found: {listing.title}")
-                    else:
-                        # Update existing listing
-                        await self.db.create_or_update_listing(stored_listing)
-                        
-                        # Check if we already have a hit for this keyword+listing
-                        hit_exists = await self.db.keyword_hit_exists(keyword.id, existing.id)
-                        if not hit_exists:
-                            # Create new hit (listing appeared again)
-                            hit = KeywordHit(
-                                keyword_id=keyword.id,
-                                listing_id=existing.id,
-                                user_id=keyword.user_id
-                            )
-                            await self.db.create_keyword_hit(hit)
-                            new_listings.append(existing)
+                    # Add to seen_set
+                    await keyword_service.add_to_seen_set(keyword.id, listing.platform, listing.platform_id)
+                    
+                    logger.info(f"New listing to notify: {listing.title}")
                 
-                except Exception as e:
-                    error_msg = f"Error processing listing: {str(e)}"
-                    results["errors"].append(error_msg)
-                    logger.error(error_msg)
+                else:
+                    # Add to seen_set even if we don't notify (it's an old item we just discovered)
+                    await keyword_service.add_to_seen_set(keyword.id, listing.platform, listing.platform_id)
             
-            results["new_listings"] = len(new_listings)
+            results["new_notifications"] = len(new_notifications)
             
-            # Send notifications for new listings
-            if new_listings and not keyword.is_muted:
-                await self._send_notifications(keyword, new_listings)
+            # Send notifications for truly new listings only
+            if new_notifications and not keyword.is_muted:
+                await self._send_notifications(keyword, new_notifications)
             
             # Update last checked timestamp
-            from services.keyword_service import KeywordService
-            keyword_service = KeywordService(self.db)
             await keyword_service.update_last_checked(keyword.id)
             
         except Exception as e:
