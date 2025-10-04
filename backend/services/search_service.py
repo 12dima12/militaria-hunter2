@@ -133,12 +133,25 @@ class SearchService:
             # Process each matched listing with all guards
             new_notifications = []
             now = datetime.now(timezone.utc)
+            seen_this_run = set()  # IN-RUN DEDUPE: prevent duplicates within this poll cycle
             
             from services.keyword_service import KeywordService
+            from utils.listing_key import build_listing_key
             keyword_service = KeywordService(self.db)
             
             for listing in matched_listings:
-                listing_key = f"{listing.platform}:{listing.platform_id}"
+                # Build stable listing key using centralized utility
+                try:
+                    listing_key = build_listing_key(listing.platform, listing.url)
+                except ValueError as e:
+                    logger.warning(f"Skipping listing due to key extraction failure: {e}")
+                    continue
+                
+                # GUARD 0: In-run dedupe (same item appears multiple times in this poll)
+                if listing_key in seen_this_run:
+                    logger.debug(f"In-run duplicate detected: {listing_key}")
+                    continue
+                seen_this_run.add(listing_key)
                 
                 # GUARD 2: Skip if already in seen_set
                 if listing_key in keyword.seen_listing_keys:
