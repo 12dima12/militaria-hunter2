@@ -106,11 +106,18 @@ class Militaria321Provider(BaseProvider):
                         logger.info(f"No items found on page {page_index}, ending crawl")
                         break
                     
-                    # Filter items with title-only matching
+                    # Filter items with title-only matching and deduplicate by ID
                     matched_items = []
+                    duplicates_on_page = 0
                     for item in page_items:
+                        # Skip duplicates
+                        if item.platform_id in seen_ids:
+                            duplicates_on_page += 1
+                            continue
+                        
                         if self._matches_keyword(item.title, keyword):
                             matched_items.append(item)
+                            seen_ids.add(item.platform_id)
                     
                     logger.info({
                         "event": "m321_page",
@@ -118,6 +125,7 @@ class Militaria321Provider(BaseProvider):
                         "page_index": page_index,
                         "startat": startat,
                         "items_on_page": len(page_items),
+                        "duplicates_on_page": duplicates_on_page,
                         "matched_items": len(matched_items),
                         "crawl_all": crawl_all,
                         "total_matched_so_far": len(all_items) + len(matched_items),
