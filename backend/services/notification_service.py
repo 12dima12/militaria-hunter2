@@ -86,14 +86,19 @@ class NotificationService:
             if listing.seller_name:
                 seller_text = f"\n👤 Verkäufer: {listing.seller_name}"
             
+            # Build timestamp strings
+            inserted_str = _fmt_ts_de(getattr(listing, "posted_ts", None))
+            found_str = _fmt_ts_de(datetime.now(timezone.utc))
+
             # Create message
-            message_text = f"""🎖️ **Neuer Treffer gefunden!**
-
-🔍 **Suchbegriff:** {keyword.keyword}
-📝 **Titel:** {listing.title}{price_text}{location_text}{condition_text}{seller_text}
-
-🌐 **Plattform:** {listing.platform}
-🕐 **Gefunden:** {listing.first_seen_ts.strftime('%d.%m. %H:%M')}"""
+            message_text = (
+                "🎖️ **Neuer Treffer gefunden!**\n\n"
+                f"🔍 **Suchbegriff:** {keyword.keyword}\n"
+                f"📝 **Titel:** {listing.title}{price_text}{location_text}{condition_text}{seller_text}\n\n"
+                f"🌐 **Plattform:** {listing.platform}\n"
+                f"📅 **Inseriert:** {inserted_str}\n"
+                f"🕐 **Gefunden:** {found_str}"
+            )
             
             # Create inline keyboard
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
