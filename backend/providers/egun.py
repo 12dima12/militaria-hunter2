@@ -314,7 +314,7 @@ class EgunProvider(BaseProvider):
                 try:
                     listing = self._parse_single_listing(container, original_query)
                     if listing and listing.platform_id:
-                        if self.matches_keyword(listing.title, original_query):
+                        if not apply_filter or self.matches_keyword(listing.title, original_query):
                             listings.append(listing)
                 except Exception as e:
                     logger.warning(f"Error parsing container {i+1}: {e}")
