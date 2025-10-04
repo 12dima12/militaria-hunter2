@@ -186,7 +186,16 @@ class SearchService:
                 in_seen_set_before = listing_key in keyword.seen_listing_keys
                 if in_seen_set_before:
                     results["skipped_seen"] += 1
-                    logger.debug(f"[GUARD 2] Skipped (already seen): {listing_key}")
+                    logger.info({
+                        "event": "decision",
+                        "platform": listing.platform,
+                        "listing_key": listing_key,
+                        "posted_ts_utc": str(getattr(listing, 'posted_ts', None)),
+                        "end_ts_utc": str(getattr(listing, 'end_ts', None)),
+                        "since_ts_utc": str(keyword.since_ts),
+                        "decision": "already_seen",
+                        "reason": "in_seen_set",
+                    })
                     continue
                 
                 # GUARD 3: posted_ts gating - check if truly new
