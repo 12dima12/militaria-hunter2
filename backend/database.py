@@ -52,9 +52,15 @@ class DatabaseManager:
             await self.db.keyword_hits.create_index("user_id")
             await self.db.keyword_hits.create_index("seen_ts")
             
-            # Notifications indexes
+            # Notifications indexes (with idempotency guard)
             await self.db.notifications.create_index("user_id")
             await self.db.notifications.create_index("sent_at")
+            # CRITICAL: Unique index for idempotency - prevents duplicate notifications
+            await self.db.notifications.create_index(
+                [("user_id", 1), ("keyword_id", 1), ("listing_key", 1)],
+                unique=True,
+                name="idempotency_guard"
+            )
             
             logger.info("Database indexes created successfully")
             
