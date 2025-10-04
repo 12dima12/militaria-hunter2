@@ -429,7 +429,7 @@ class SearchService:
                     "matched_items": matched_items[:3],  # Top 3 for display
                     "all_items": matched_items if seed_baseline else [],  # All items if seeding
                     "total_count": search_result.total_count,
-                    "has_more": search_result.has_more or len(matched_items) &gt; 3,
+                    "has_more": search_result.has_more or len(matched_items) > 3,
                     "error": None,
                     "provider": provider  # Include provider for price formatting
                 }
