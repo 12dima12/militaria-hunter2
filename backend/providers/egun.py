@@ -283,7 +283,7 @@ class EgunProvider(BaseProvider):
             logger.error(f"Unexpected error fetching egun.de page {page}: {e}")
             return [], None, False
     
-    def _parse_search_page(self, soup: BeautifulSoup, original_query: str, page: int) -> tuple[List[Listing], Optional[int], bool]:
+    def _parse_search_page(self, soup: BeautifulSoup, original_query: str, page: int, apply_filter: bool = True) -> tuple[List[Listing], Optional[int], bool]:
         """Parse listings from egun.de search results page"""
         listings = []
         total_count = None
