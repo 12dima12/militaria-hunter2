@@ -30,10 +30,10 @@ class DatabaseManager:
         self.client = AsyncIOMotorClient(mongo_url)
         self.db = self.client[db_name]
         
-        # Create indexes and verify
-        await self._create_indexes()
-        # Run one-time migration(s) that must precede scheduler/bot
+        # Run one-time migration(s) that must precede scheduler/bot and index enforcement
         await self._migrate_notifications_listing_key()
+        # Create indexes and verify (after migration to avoid transient failures)
+        await self._create_indexes()
         
         self._initialized = True
         logger.info(f"Database initialized: {db_name}")
