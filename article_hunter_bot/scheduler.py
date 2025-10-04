@@ -125,6 +125,9 @@ class PollingScheduler:
             skipped_old = 0
             skipped_duplicate = 0
             
+            # Collect all seen keys (pushed + absorbed)
+            new_seen_keys = []
+            
             # Send notifications for new items
             for item in new_items:
                 try:
@@ -133,18 +136,21 @@ class PollingScheduler:
                     )
                     if was_sent:
                         pushed_count += 1
-                        # Update seen keys
-                        listing_key = f"{item.platform}:{item.platform_id}"
-                        keyword.seen_listing_keys.append(listing_key)
                     else:
                         skipped_duplicate += 1
+                    
+                    # Always add to seen keys (whether pushed or duplicate)
+                    listing_key = self._build_canonical_listing_key(item)
+                    new_seen_keys.append(listing_key)
                         
                 except Exception as e:
                     logger.error(f"Error sending notification for {item.platform}:{item.platform_id}: {e}")
             
-            # Update keyword's seen keys if we found new items
-            if pushed_count > 0:
-                await self.db.update_keyword_seen_keys(keyword.id, keyword.seen_listing_keys)
+            # Update keyword's seen keys if we have new keys to add
+            if new_seen_keys:
+                # Add new keys to existing seen keys (avoid duplicates)
+                updated_seen_keys = list(set(keyword.seen_listing_keys + new_seen_keys))
+                await self.db.update_keyword_seen_keys(keyword.id, updated_seen_keys)
             
             # Log poll summary
             logger.info({
