@@ -203,3 +203,5 @@ agent_communication:
     message: "Fixed militaria321 search parameter (changed from 'wort' to 'q') and improved HTML parsing to extract titles from auction links. Provider now correctly retrieves 25 results for 'Brieföffner' (was 0 before). German price formatting working. Bot restarted and sending notifications. Ready for comprehensive Telegram bot command testing."
   - agent: "main"
     message: "Calling backend testing agent to test all Telegram bot commands: /start, /hilfe, /suche (with various keywords including diacritics), /liste, /testen, /loeschen (with confirmation), /pausieren, /fortsetzen. Need to verify: 1) Keyword search returns correct count, 2) Price formatting in German (e.g., '249,00 €'), 3) No timestamp false positives for 'uhr' keyword, 4) Delete confirmation flow works."
+  - agent: "main"
+    message: "Added egun.de as second provider. Implemented per-provider first-run sample blocks. Created provider registry for multi-provider support. Updated /suche command to show separate blocks per provider (egun.de, militaria321.com) with exactly top 3 items + suffix lines. Backend restarted successfully with both providers active."
