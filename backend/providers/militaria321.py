@@ -491,7 +491,7 @@ class Militaria321Provider(BaseProvider):
             
             # Extract title from link text
             title = auction_link.get_text().strip()
-            if not title or len(title) &lt; 3:
+            if not title or len(title) < 3:
                 logger.debug(f"Title too short or empty: '{title}'")
                 return None
             
