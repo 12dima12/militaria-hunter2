@@ -535,11 +535,46 @@ class SearchService:
                             from bs4 import BeautifulSoup
                             soup = BeautifulSoup(response.text, 'html.parser')
                             
-                            # Parse items on this page
-                            page_items, _, _ = provider._parse_search_page(soup, keyword_text, pages_scanned + 1)
+                            # Parse items on this page WITHOUT keyword filtering
+                            # We want to collect ALL items to prevent future notifications
+                            page_items = []
+                            
+                            if platform == "militaria321.com":
+                                # Find all auction links
+                                auction_links = soup.find_all('a', href=lambda x: x and '/auktion/' in str(x))
+                                seen_containers = set()
+                                for link in auction_links:
+                                    container = link.find_parent('tr')
+                                    if container:
+                                        container_id = id(container)
+                                        if container_id not in seen_containers:
+                                            seen_containers.add(container_id)
+                                            listing = provider._parse_single_listing(container, keyword_text)
+                                            if listing and listing.platform_id:
+                                                page_items.append(listing)
+                            
+                            elif platform == "egun.de":
+                                # Find all item links
+                                item_links = soup.find_all('a', href=lambda x: x and 'item.php?id=' in str(x))
+                                seen_containers = set()
+                                for link in item_links:
+                                    container = link.find_parent('tr')
+                                    if container:
+                                        container_id = id(container)
+                                        if container_id not in seen_containers:
+                                            seen_containers.add(container_id)
+                                            listing = provider._parse_single_listing(container, keyword_text)
+                                            if listing and listing.platform_id:
+                                                page_items.append(listing)
+                            
+                            else:
+                                # Fallback: use provider's parse method (with filtering)
+                                page_items, _, _ = provider._parse_search_page(soup, keyword_text, pages_scanned + 1)
                             
                             items_on_page = len(page_items)
                             items_collected += items_on_page
+                            
+                            logger.info(f"{platform} page {pages_scanned + 1}: collected {items_on_page} items (NO filtering for baseline)")
                             
                             # Batch add to seen_set using stable keys
                             if page_items:
