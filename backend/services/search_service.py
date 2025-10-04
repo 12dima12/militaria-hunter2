@@ -156,7 +156,7 @@ class SearchService:
                 logger.warning(f"Error enriching posted_ts for militaria321 items: {e}")
             
             results["matched_listings"] = len(matched_listings)
-            logger.info(f"Keyword '{keyword.keyword}': {len(all_raw_listings)} raw -&gt; {len(matched_listings)} matched")
+            logger.info(f"Keyword '{keyword.keyword}': {len(all_raw_listings)} raw -> {len(matched_listings)} matched")
             
             # Process each matched listing with all guards
             new_notifications = []
