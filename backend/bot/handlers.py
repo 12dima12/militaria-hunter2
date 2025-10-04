@@ -139,12 +139,22 @@ async def perform_first_run_sample(message: Message, keyword, keyword_text: str,
             for i in range(shown_count):
                 item = search_result.items[i]
                 
-                # Format price
+                # Format price using German locale
                 price_str = ""
                 if item.price_value and item.price_currency:
-                    price_str = f" – {item.price_value:.2f} {item.price_currency}"
+                    from decimal import Decimal
+                    from providers.militaria321 import Militaria321Provider
+                    
+                    provider = Militaria321Provider()
+                    formatted_price = provider.format_price_de(Decimal(str(item.price_value)), item.price_currency)
+                    price_str = f" – {formatted_price}"
                 elif item.price_value:
-                    price_str = f" – {item.price_value:.2f} €"
+                    from decimal import Decimal
+                    from providers.militaria321 import Militaria321Provider
+                    
+                    provider = Militaria321Provider()
+                    formatted_price = provider.format_price_de(Decimal(str(item.price_value)), "EUR")
+                    price_str = f" – {formatted_price}"
                 
                 # Format location
                 location_str = ""
@@ -401,12 +411,22 @@ async def cmd_test(message: Message):
             for i in range(shown_count):
                 item = search_result.items[i]
                 
-                # Format price
+                # Format price using German locale
                 price_str = ""
                 if item.price_value and item.price_currency:
-                    price_str = f" – {item.price_value:.2f} {item.price_currency}"
+                    from decimal import Decimal
+                    from providers.militaria321 import Militaria321Provider
+                    
+                    provider = Militaria321Provider()
+                    formatted_price = provider.format_price_de(Decimal(str(item.price_value)), item.price_currency)
+                    price_str = f" – {formatted_price}"
                 elif item.price_value:
-                    price_str = f" – {item.price_value:.2f} €"
+                    from decimal import Decimal
+                    from providers.militaria321 import Militaria321Provider
+                    
+                    provider = Militaria321Provider()
+                    formatted_price = provider.format_price_de(Decimal(str(item.price_value)), "EUR")
+                    price_str = f" – {formatted_price}"
                 
                 # Format location
                 location_str = ""
