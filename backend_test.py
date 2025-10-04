@@ -707,27 +707,27 @@ class TelegramBotTester:
             mock_listings = [
                 Listing(
                     platform="militaria321.com",
-                    platform_id="new_item_1",
+                    platform_id="1234567",
                     title=f"{test_keyword_text} New Item 1",
-                    url="https://militaria321.com/auktion/new_item_1",
+                    url="https://militaria321.com/auktion/1234567",
                     posted_ts=since_ts + timedelta(minutes=30),  # Should trigger notification
                     price_value=100.0,
                     price_currency="EUR"
                 ),
                 Listing(
                     platform="militaria321.com", 
-                    platform_id="old_item_1",
+                    platform_id="2345678",
                     title=f"{test_keyword_text} Old Item 1",
-                    url="https://militaria321.com/auktion/old_item_1",
+                    url="https://militaria321.com/auktion/2345678",
                     posted_ts=since_ts - timedelta(minutes=30),  # Should be absorbed to baseline
                     price_value=200.0,
                     price_currency="EUR"
                 ),
                 Listing(
                     platform="militaria321.com",
-                    platform_id="no_ts_item_1", 
+                    platform_id="3456789", 
                     title=f"{test_keyword_text} No Timestamp Item",
-                    url="https://militaria321.com/auktion/no_ts_item_1",
+                    url="https://militaria321.com/auktion/3456789",
                     posted_ts=None,  # Should be absorbed (subscription > 60min old)
                     price_value=150.0,
                     price_currency="EUR"
