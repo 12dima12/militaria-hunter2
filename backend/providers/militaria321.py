@@ -201,6 +201,21 @@ class Militaria321Provider(BaseProvider):
                         # If this page has more, overall result has more
                         if page_has_more:
                             has_more = True
+
+                        # Provider-level early-stop: if since_ts provided and all items on this page are older than since_ts
+                        if since_ts is not None:
+                            try:
+                                older_only = True
+                                for it in page_listings:
+                                    if getattr(it, 'posted_ts', None) is not None and getattr(it, 'posted_ts').tzinfo is not None:
+                                        if it.posted_ts >= since_ts:
+                                            older_only = False
+                                            break
+                                if older_only:
+                                    logger.info("Early-stop: page contains only items older than since_ts; stopping pagination for this run")
+                                    break
+                            except Exception:
+                                pass
                     else:
                         # No results on this page, stop pagination
                         break
