@@ -102,6 +102,7 @@ class Notification(BaseModel):
     user_id: str
     keyword_id: str
     listing_id: str
+    listing_key: str  # "platform:platform_id" for idempotency
     telegram_message_id: Optional[int] = None
     sent_at: datetime = Field(default_factory=datetime.utcnow)
     status: str = "sent"  # sent, failed, cancelled
