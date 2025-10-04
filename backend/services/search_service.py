@@ -130,58 +130,77 @@ class SearchService:
             results["matched_listings"] = len(matched_listings)
             logger.info(f"Keyword '{keyword.keyword}': {len(all_raw_listings)} raw -> {len(matched_listings)} matched")
             
-            # Check for truly new listings (not in seen_set and posted after since_ts)
+            # Process each matched listing with all guards
             new_notifications = []
+            now = datetime.now(timezone.utc)
             
             from services.keyword_service import KeywordService
             keyword_service = KeywordService(self.db)
             
             for listing in matched_listings:
-                listing_key = keyword_service.make_listing_key(listing.platform, listing.platform_id)
+                listing_key = f"{listing.platform}:{listing.platform_id}"
                 
-                # Skip if already seen
-                if keyword_service.is_listing_seen(keyword, listing.platform, listing.platform_id):
+                # GUARD 2: Skip if already in seen_set
+                if listing_key in keyword.seen_listing_keys:
+                    results["skipped_seen"] += 1
+                    logger.debug(f"Skipping seen listing: {listing_key}")
                     continue
                 
-                # Check if listing was posted after subscription start
-                # Since we don't have posting timestamp from militaria321, assume first_seen is posting time
-                is_new_posting = True
-                if listing.first_seen_ts and listing.first_seen_ts <= keyword.since_ts:
-                    is_new_posting = False
+                # GUARD 3: posted_ts gating - check if truly new
+                if not is_new_listing(listing, keyword.since_ts, now, grace_minutes=60):
+                    results["skipped_old"] += 1
+                    logger.debug(f"Skipping old listing: {listing_key} (posted before subscription or outside grace window)")
+                    # Add to seen set but don't notify
+                    await self.db.add_to_seen_set_batch(keyword.id, [listing_key])
+                    continue
                 
-                # For listings without timestamp, consider them new if not in seen_set
-                if is_new_posting or not listing.first_seen_ts:
-                    # Store listing in database
-                    stored_listing = StoredListing(
-                        platform=listing.platform,
-                        platform_id=listing.platform_id,
-                        title=listing.title,
-                        url=listing.url,
-                        price_value=listing.price_value,
-                        price_currency=listing.price_currency,
-                        location=listing.location,
-                        condition=listing.condition,
-                        seller_name=listing.seller_name,
-                        seller_rating=listing.seller_rating,
-                        listing_type=listing.listing_type,
-                        image_url=listing.image_url,
-                        first_seen_ts=listing.first_seen_ts or datetime.utcnow(),
-                        last_seen_ts=listing.last_seen_ts or datetime.utcnow()
-                    )
-                    
-                    await self.db.create_or_update_listing(stored_listing)
+                # Store listing in database
+                stored_listing = StoredListing(
+                    platform=listing.platform,
+                    platform_id=listing.platform_id,
+                    title=listing.title,
+                    url=listing.url,
+                    price_value=listing.price_value,
+                    price_currency=listing.price_currency,
+                    location=listing.location,
+                    condition=listing.condition,
+                    seller_name=listing.seller_name,
+                    seller_rating=listing.seller_rating,
+                    listing_type=listing.listing_type,
+                    image_url=listing.image_url,
+                    first_seen_ts=listing.first_seen_ts or datetime.utcnow(),
+                    last_seen_ts=listing.last_seen_ts or datetime.utcnow()
+                )
+                
+                await self.db.create_or_update_listing(stored_listing)
+                
+                # GUARD 4: Idempotent notification (try to create, will fail if duplicate)
+                can_notify = await self.db.create_notification_idempotent(
+                    user_id=keyword.user_id,
+                    keyword_id=keyword.id,
+                    listing_key=listing_key,
+                    notification_data={
+                        "listing_id": stored_listing.id,
+                        "notification_type": "new_item",
+                        "status": "pending"
+                    }
+                )
+                
+                if can_notify:
                     new_notifications.append(stored_listing)
-                    
-                    # Add to seen_set
-                    await keyword_service.add_to_seen_set(keyword.id, listing.platform, listing.platform_id)
-                    
-                    logger.info(f"New listing to notify: {listing.title}")
-                
+                    logger.info(f"New listing to notify: {listing_key} - {listing.title}")
                 else:
-                    # Add to seen_set even if we don't notify (it's an old item we just discovered)
-                    await keyword_service.add_to_seen_set(keyword.id, listing.platform, listing.platform_id)
+                    results["skipped_duplicate"] += 1
+                    logger.debug(f"Duplicate notification prevented: {listing_key}")
+                
+                # Always add to seen_set (atomic operation)
+                await self.db.add_to_seen_set_batch(keyword.id, [listing_key])
             
             results["new_notifications"] = len(new_notifications)
+            
+            logger.info(f"Keyword '{keyword.keyword}': {results['new_notifications']} notifications, "
+                       f"{results['skipped_seen']} seen, {results['skipped_old']} old, "
+                       f"{results['skipped_duplicate']} duplicates")
             
             # Send notifications for truly new listings only
             if new_notifications and not keyword.is_muted:
