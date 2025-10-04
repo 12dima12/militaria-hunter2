@@ -107,8 +107,16 @@ class Militaria321Provider(BaseProvider):
             url = f"{self.search_url}{search_params}"
             
             async with httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
-                logger.info(f"Fetching militaria321 page {page}: {url}")
-                response = await client.get(url)
+                # Try POST request with form data
+                form_data = {
+                    'wort': query,
+                    'act': 'auctions_search'
+                }
+                if page > 1:
+                    form_data['page'] = str(page)
+                
+                logger.info(f"POST search to militaria321 page {page} with data: {form_data}")
+                response = await client.post(self.search_url, data=form_data)
                 response.raise_for_status()
                 
                 # Debug: Log response details
