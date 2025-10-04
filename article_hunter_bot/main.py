@@ -28,17 +28,20 @@ async def main():
     
     # Initialize bot manager
     bot_manager = TelegramBotManager(db_manager)
+    
+    # Initialize scheduler with placeholder services (will be set after bot init)
+    scheduler = PollingScheduler(db_manager, None, None)
+    
+    # Pass scheduler to bot handlers before initialization
+    from bot.telegram_bot import set_services
+    set_services(db_manager, None, None, scheduler)
+    
+    # Now initialize bot manager
     await bot_manager.initialize()
     
-    # Initialize scheduler
-    scheduler = PollingScheduler(
-        db_manager,
-        bot_manager.search_service,
-        bot_manager.notification_service
-    )
-    
-    # Pass scheduler to bot handlers
-    from bot.telegram_bot import set_services
+    # Update scheduler and handlers with actual services
+    scheduler.search_service = bot_manager.search_service
+    scheduler.notification_service = bot_manager.notification_service
     set_services(
         db_manager,
         bot_manager.search_service,
