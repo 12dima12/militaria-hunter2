@@ -523,7 +523,10 @@ class Militaria321Provider(BaseProvider):
                 url = urljoin(self.base_url, element['href'])
             
             if not url:
+                logger.debug(f"No URL found in container with title '{title}'")
                 return None
+            
+            logger.debug(f"Extracted URL: '{url}'")
             
             # Extract price using new robust parsing
             price_value, price_currency = self._extract_price_robust(element)
