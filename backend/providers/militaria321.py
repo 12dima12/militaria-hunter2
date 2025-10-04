@@ -494,35 +494,32 @@ class Militaria321Provider(BaseProvider):
         return sample_listings
     
     def _parse_single_listing(self, element, original_query: str) -> Optional[Listing]:
-        """Parse a single listing element"""
+        """Parse a single listing element from a table row"""
         try:
-            # Extract title
-            title_selectors = ['h1', 'h2', 'h3', '.title', '.name', '.product-title', 'a']
-            title = None
-            for selector in title_selectors:
-                title_elem = element.select_one(selector)
-                if title_elem and title_elem.get_text().strip():
-                    title = title_elem.get_text().strip()[:200]  # Limit length
-                    break
+            # Find auction link within the row
+            auction_link = element.find('a', href=lambda x: x and 'auktion' in str(x).lower())
             
-            if not title:
-                logger.debug(f"No title found in container")
+            if not auction_link:
+                logger.debug(f"No auction link found in row")
                 return None
             
+            # Extract title from link text
+            title = auction_link.get_text().strip()
+            if not title or len(title) < 3:
+                logger.debug(f"Title too short or empty: '{title}'")
+                return None
+            
+            # Clean title (limit length)
+            title = title[:200]
             logger.debug(f"Extracted title: '{title}'")
             
-            # Extract URL
-            url = None
-            link = element.find('a')
-            if link and link.get('href'):
-                url = urljoin(self.base_url, link['href'])
-            elif element.name == 'a' and element.get('href'):
-                url = urljoin(self.base_url, element['href'])
-            
-            if not url:
-                logger.debug(f"No URL found in container with title '{title}'")
+            # Extract URL from link
+            href = auction_link.get('href')
+            if not href:
+                logger.debug(f"No href in auction link")
                 return None
             
+            url = urljoin(self.base_url, href)
             logger.debug(f"Extracted URL: '{url}'")
             
             # Extract price using new robust parsing
