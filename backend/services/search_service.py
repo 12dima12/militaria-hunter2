@@ -278,7 +278,7 @@ class SearchService:
                     "event": "decision",
                     "platform": listing.platform,
                     "keyword_norm": keyword.normalized_keyword or keyword.keyword.casefold(),
-                    "match_mode": "strict",  # current default is strict title-only matching
+                    "match_mode": match_mode,
                     "listing_key": listing_key,
                     "posted_ts_utc": (getattr(listing, 'posted_ts', None).astimezone(timezone.utc).isoformat().replace('+00:00','Z') if getattr(listing, 'posted_ts', None) else None),
                     "end_ts_utc": (getattr(listing, 'end_ts', None).astimezone(timezone.utc).isoformat().replace('+00:00','Z') if getattr(listing, 'end_ts', None) else None),
