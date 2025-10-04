@@ -283,3 +283,38 @@ async def callback_retest_keyword(callback_query: CallbackQuery):
     except Exception as e:
         logger.error(f"Error in retest: {e}")
         await callback_query.answer("❌ Fehler beim erneuten Test", show_alert=True)
+
+
+@callback_router.callback_query(lambda c: c.data.startswith("mute_30m_"))
+async def callback_mute_keyword(callback_query: CallbackQuery):
+    """Handle keyword mute (30 minutes)"""
+    await callback_query.answer()
+    
+    keyword_id = callback_query.data.split("_")[-1]
+    
+    try:
+        keyword = await keyword_service.get_keyword_by_id(keyword_id)
+        if not keyword:
+            await callback_query.answer("❌ Suchbegriff nicht gefunden", show_alert=True)
+            return
+        
+        # Check ownership
+        user = await db_manager.get_user_by_telegram_id(callback_query.from_user.id)
+        if not user or keyword.user_id != user.id:
+            await callback_query.answer("❌ Keine Berechtigung", show_alert=True)
+            return
+        
+        # Mute for 30 minutes
+        from datetime import timedelta
+        mute_until = datetime.utcnow() + timedelta(minutes=30)
+        await keyword_service.update_keyword_status(keyword_id, is_muted=True, muted_until=mute_until)
+        
+        await callback_query.answer("🔇 Für 30 Minuten stummgeschaltet")
+        await callback_query.message.answer(
+            f"🔇 Suchbegriff **'{keyword.keyword}'** ist für 30 Minuten stummgeschaltet.\n\nVerwenden Sie `/laut {keyword.keyword}` um wieder zu aktivieren.",
+            parse_mode="Markdown"
+        )
+        
+    except Exception as e:
+        logger.error(f"Error muting keyword: {e}")
+        await callback_query.answer("❌ Fehler beim Stummschalten", show_alert=True)
