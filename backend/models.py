@@ -61,6 +61,8 @@ class Keyword(BaseModel):
     since_ts: datetime = Field(default_factory=datetime.utcnow)  # When subscription was created/updated
     seen_listing_keys: List[str] = Field(default_factory=list)  # Track seen (platform, platform_id) as strings
     provider_stats: Dict[str, Dict[str, Any]] = Field(default_factory=dict)  # Per-provider stats: {platform: {total_hits, last_poll_ts, last_match_ts, error_count}}
+    baseline_status: str = "pending"  # Status: pending, partial, complete, error
+    baseline_errors: Dict[str, str] = Field(default_factory=dict)  # Per-provider errors: {platform: error_message}
 
 
 class StoredListing(BaseModel):
