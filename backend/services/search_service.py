@@ -321,7 +321,7 @@ class SearchService:
                         results["errors"].extend(result.get("errors", []))
                 
                 # Small delay between batches
-                if i + batch_size &lt; len(keywords):
+                if i + batch_size < len(keywords):
                     await asyncio.sleep(2)
             
             results["end_time"] = datetime.utcnow()
