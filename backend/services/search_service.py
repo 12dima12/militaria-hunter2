@@ -200,4 +200,116 @@ class SearchService:
             results["errors"].append(error_msg)
             logger.error(error_msg)
         
+
+    async def get_counts_per_provider(self, keyword_text: str, providers_filter: List[str] = None) -> Dict[str, Dict[str, Any]]:
+        """
+        Get counts per provider for a keyword (for /suche).
+        Returns: {platform: {matched_count, total_count, has_more, error}}
+        """
+        if providers_filter is None:
+            providers_filter = list(self.providers.keys())
+        
+        results = {}
+        
+        for platform in providers_filter:
+            if platform not in self.providers:
+                results[platform] = {
+                    "matched_count": 0,
+                    "total_count": None,
+                    "has_more": False,
+                    "error": f"Provider {platform} not found"
+                }
+                continue
+            
+            try:
+                provider = self.providers[platform]
+                
+                # Search with sample_mode to get better counts
+                search_result = await provider.search(keyword_text, sample_mode=True)
+                
+                # Apply title-only matching
+                matched_items = []
+                for item in search_result.items:
+                    if provider.matches_keyword(item.title, keyword_text):
+                        matched_items.append(item)
+                
+                results[platform] = {
+                    "matched_count": len(matched_items),
+                    "total_count": search_result.total_count,
+                    "has_more": search_result.has_more,
+                    "error": None,
+                    "items": matched_items  # Include items for baseline seeding
+                }
+                
+                logger.info(f"get_counts_per_provider({keyword_text}, {platform}): {len(matched_items)} matched")
+                
+            except Exception as e:
+                logger.error(f"Error getting counts for {platform}: {e}")
+                results[platform] = {
+                    "matched_count": 0,
+                    "total_count": None,
+                    "has_more": False,
+                    "error": str(e),
+                    "items": []
+                }
+        
+        return results
+    
+    async def get_sample_blocks(self, keyword_text: str, providers_filter: List[str] = None, seed_baseline: bool = False) -> Dict[str, Dict[str, Any]]:
+        """
+        Get sample blocks per provider (for /testen).
+        Returns: {platform: {matched_items (top 3), total_count, has_more, error}}
+        If seed_baseline=True, will also return all items for seeding.
+        """
+        if providers_filter is None:
+            providers_filter = list(self.providers.keys())
+        
+        results = {}
+        
+        for platform in providers_filter:
+            if platform not in self.providers:
+                results[platform] = {
+                    "matched_items": [],
+                    "total_count": None,
+                    "has_more": False,
+                    "error": f"Provider {platform} not found"
+                }
+                continue
+            
+            try:
+                provider = self.providers[platform]
+                
+                # Search with sample_mode
+                search_result = await provider.search(keyword_text, sample_mode=True)
+                
+                # Apply title-only matching
+                matched_items = []
+                for item in search_result.items:
+                    if provider.matches_keyword(item.title, keyword_text):
+                        matched_items.append(item)
+                
+                # Return top 3 for display
+                results[platform] = {
+                    "matched_items": matched_items[:3],  # Top 3 for display
+                    "all_items": matched_items if seed_baseline else [],  # All items if seeding
+                    "total_count": search_result.total_count,
+                    "has_more": search_result.has_more or len(matched_items) > 3,
+                    "error": None,
+                    "provider": provider  # Include provider for price formatting
+                }
+                
+                logger.info(f"get_sample_blocks({keyword_text}, {platform}): {len(matched_items)} matched, showing top 3")
+                
+            except Exception as e:
+                logger.error(f"Error getting samples for {platform}: {e}")
+                results[platform] = {
+                    "matched_items": [],
+                    "all_items": [],
+                    "total_count": None,
+                    "has_more": False,
+                    "error": str(e),
+                    "provider": self.providers.get(platform)
+                }
+        
+        return results
         return results
