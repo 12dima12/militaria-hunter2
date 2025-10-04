@@ -314,10 +314,15 @@ class Militaria321Provider(BaseProvider):
             # Check if there are more pages
             has_more = self._has_next_page(soup)
             
-            # Find auction links - militaria321 uses /auktion/ URLs
-            auction_links = soup.find_all('a', href=lambda x: x and '/auktion/' in str(x))
+            # Find auction links - militaria321 uses various auction URL patterns
+            # Try different patterns
+            auction_links = soup.find_all('a', href=lambda x: x and 'auktion' in str(x).lower())
             
             logger.info(f"Found {len(auction_links)} auction links on page")
+            
+            # Debug: log some hrefs to see the pattern
+            if auction_links and len(auction_links) > 0:
+                logger.debug(f"Sample auction hrefs: {[a.get('href') for a in auction_links[:3]]}")
             
             if not auction_links:
                 # No auction items found
