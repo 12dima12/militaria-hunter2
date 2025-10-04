@@ -282,54 +282,9 @@ class Militaria321Provider(BaseProvider):
                 
                 logger.info(f"Query '{query}' successfully reflected in search results")
                 
-                # Debug: Check for common error messages or empty result indicators
-                error_indicators = [
-                    "No results found",
-                    "0 Items found", 
-                    "keine Treffer",
-                    "Please check your entry"
-                ]
-                
-                page_text = soup.get_text().lower()
-                for indicator in error_indicators:
-                    if indicator.lower() in page_text:
-                        logger.info(f"Found error indicator on page: '{indicator}'")
-                
-                # Debug: Log some of the page content to see what we're getting
-                if query.lower() == "kappmesser" and page == 1:
-                    logger.info(f"Debug - Page title: {soup.title.string if soup.title else 'No title'}")
-                    
-                    # Look for any links that might be auction items
-                    all_links = soup.find_all('a', href=True)
-                    auction_related_links = []
-                    for link in all_links:
-                        href = link.get('href', '')
-                        if any(pattern in href.lower() for pattern in ['auktion', 'detail', 'item', 'lot']):
-                            auction_related_links.append((href, link.get_text().strip()[:50]))
-                    
-                    logger.info(f"Debug - Found {len(auction_related_links)} auction-related links")
-                    for i, (href, text) in enumerate(auction_related_links[:5]):
-                        logger.info(f"Debug - Auction link {i+1}: {href} - {text}")
-                    
-                    # Look for form elements and search results indicators
-                    forms = soup.find_all('form')
-                    logger.info(f"Debug - Found {len(forms)} forms")
-                    
-                    # Look for any text indicating results count
-                    text_content = soup.get_text()
-                    result_patterns = ['treffer', 'result', 'gefunden', 'found', 'artikel', 'auktion']
-                    for pattern in result_patterns:
-                        if pattern in text_content.lower():
-                            # Find lines containing the pattern
-                            lines = [line.strip() for line in text_content.split('\n') if pattern in line.lower() and line.strip()]
-                            if lines:
-                                logger.info(f"Debug - Lines with '{pattern}': {lines[:3]}")
-                    
-                    # Check if there's a message about no results
-                    no_result_patterns = ['keine treffer', 'no results', '0 gefunden', 'nothing found']
-                    for pattern in no_result_patterns:
-                        if pattern in text_content.lower():
-                            logger.info(f"Debug - Found no-results pattern: '{pattern}'")
+                # Log auction links found on page for debugging
+                auction_links = soup.find_all('a', href=lambda x: x and 'auktion' in str(x).lower())
+                logger.info(f"Found {len(auction_links)} auction-related links on page")
                 
                 listings, total_count, has_more = self._parse_search_page(soup, query, page)
                 
