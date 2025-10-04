@@ -107,6 +107,8 @@ class Militaria321Provider(BaseProvider):
                         "page_index": page_index,
                         "startat": startat,
                         "items_on_page": len(page_items),
+                        "matched_items": len(matched_items),
+                        "crawl_all": crawl_all,
                         "url": str(response.url)
                     })
                     
