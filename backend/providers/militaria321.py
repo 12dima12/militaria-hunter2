@@ -572,7 +572,7 @@ class Militaria321Provider(BaseProvider):
         if price_text:
             # Use the robust price parsing
             decimal_value, currency = self.parse_price(price_text)
-            logger.debug(f"Price parsing: '{price_text}' -&gt; {decimal_value} {currency}")
+            logger.debug(f"Price parsing: '{price_text}' -> {decimal_value} {currency}")
             
             # Convert Decimal back to float for storage (maintaining precision)
             float_value = float(decimal_value) if decimal_value else None
