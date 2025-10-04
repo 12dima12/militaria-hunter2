@@ -14,14 +14,22 @@ class KeywordService:
     def __init__(self, db_manager: DatabaseManager):
         self.db = db_manager
     
+    @staticmethod
+    def normalize_keyword(keyword: str) -> str:
+        """Normalize keyword using Unicode casefold for case-insensitive operations"""
+        return keyword.strip().casefold()
+    
     async def create_keyword(self, user_id: str, keyword_text: str, platforms: List[str] = None) -> Keyword:
-        """Create a new keyword for user"""
+        """Create a new keyword for user (case-insensitive)"""
         if platforms is None:
             platforms = ["militaria321.com"]
         
+        normalized = self.normalize_keyword(keyword_text)
+        
         keyword = Keyword(
             user_id=user_id,
-            keyword=keyword_text,
+            keyword=keyword_text,  # Store original as entered
+            normalized_keyword=normalized,  # Store normalized for matching
             platforms=platforms,
             frequency_seconds=60  # Default 60 seconds
         )
