@@ -174,7 +174,6 @@ class Militaria321Provider(BaseProvider):
         
         # Find auction links containing "auktion/" (with or without leading slash)
         auction_links = soup.find_all('a', href=re.compile(r'auktion/'))
-        print(f"DEBUG: Found {len(auction_links)} auction links")
         
         for link in auction_links:
             try:
