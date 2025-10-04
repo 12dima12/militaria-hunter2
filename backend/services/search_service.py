@@ -576,6 +576,11 @@ class SearchService:
                             
                             logger.info(f"{platform} page {pages_scanned + 1}: collected {items_on_page} items (NO filtering for baseline)")
                             
+                            # If this page had 0 items, stop pagination (no point continuing)
+                            if items_on_page == 0:
+                                logger.info(f"{platform} page {pages_scanned + 1} has 0 items, stopping pagination")
+                                break
+                            
                             # Batch add to seen_set using stable keys
                             if page_items:
                                 from utils.listing_key import build_listing_key
