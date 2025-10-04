@@ -242,7 +242,10 @@ class DatabaseManager:
         return log
     
     async def close(self):
-
+        """Close database connection"""
+        if self.client:
+            self.client.close()
+    
     async def add_to_seen_set_batch(self, keyword_id: str, listing_keys: List[str]) -> bool:
         """
         Add multiple listing keys to a keyword's seen_listing_keys set in batch.
