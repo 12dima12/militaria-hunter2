@@ -621,11 +621,13 @@ class Militaria321Provider(BaseProvider):
         """Extract unique ID from URL"""
         # Try to find ID patterns in URL
         patterns = [
+            r'/auktion/(\d+)',  # militaria321 pattern: /auktion/7580057/...
             r'/item/(\d+)',
             r'/product/(\d+)', 
             r'/listing/(\d+)',
             r'id=(\d+)',
-            r'item_id=(\d+)'
+            r'item_id=(\d+)',
+            r'/(\d{7,})',  # Any 7+ digit number in URL
         ]
         
         for pattern in patterns:
