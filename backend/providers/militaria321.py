@@ -307,7 +307,7 @@ class Militaria321Provider(BaseProvider):
             logger.info(f"Found {len(auction_links)} auction links on page")
             
             # Debug: log some hrefs to see the pattern
-            if auction_links and len(auction_links) &gt; 0:
+            if auction_links and len(auction_links) > 0:
                 logger.debug(f"Sample auction hrefs: {[a.get('href') for a in auction_links[:3]]}")
             
             if not auction_links:
