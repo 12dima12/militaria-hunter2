@@ -683,7 +683,7 @@ class Militaria321Provider(BaseProvider):
             # 2) table rows
             for tr in soup.find_all('tr'):
                 cells = tr.find_all(['td', 'th'])
-                if len(cells) &gt;= 2:
+                if len(cells) >= 2:
                     label = cells[0].get_text(" ", strip=True)
                     if re.search(r'(Auktionsbeginn|Eingestellt)', label, re.IGNORECASE):
                         ts = self._parse_posted_ts_from_text(cells[1].get_text(" ", strip=True))
