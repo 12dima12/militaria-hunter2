@@ -106,11 +106,11 @@ class DatabaseManager:
         keywords = await keywords_cursor.to_list(length=None)
         return [Keyword(**keyword) for keyword in keywords]
     
-    async def get_user_keyword_by_text(self, user_id: str, keyword_text: str) -> Optional[Keyword]:
-        """Get specific keyword by user and text"""
+    async def get_user_keyword_by_normalized(self, user_id: str, normalized_keyword: str) -> Optional[Keyword]:
+        """Get specific keyword by user and normalized text"""
         keyword_doc = await self.db.keywords.find_one({
             "user_id": user_id,
-            "keyword": keyword_text
+            "normalized_keyword": normalized_keyword
         })
         if keyword_doc:
             return Keyword(**keyword_doc)
