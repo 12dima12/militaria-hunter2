@@ -53,6 +53,7 @@ class Militaria321Provider(BaseProvider):
         all_items = []
         pages_scanned = 0
         total_count = None
+        seen_ids = set()  # Track IDs to avoid duplicates
         
         async with httpx.AsyncClient(
             headers=self.headers,
