@@ -297,7 +297,9 @@ async def cmd_test(message: Message):
         await message.answer("❌ Bitte geben Sie den zu testenden Suchbegriff an.\n\nBeispiel: `/testen Pistole`", parse_mode="Markdown")
         return
 
-    keyword_text = args[1].strip().strip('"')
+    raw = args[1].strip()
+    # Entferne führende/abschließende Anführungszeichen (verschiedene Varianten)
+    keyword_text = raw.strip(' "\'“”„‚’«»')
 
     # Lookup user keyword to get provider list
     keyword = await keyword_service.get_user_keyword(user.id, keyword_text)
