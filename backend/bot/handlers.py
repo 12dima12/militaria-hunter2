@@ -402,7 +402,7 @@ async def cmd_resume(message: Message):
     await message.answer(f"▶️ Suchbegriff **'{keyword.keyword}'** wurde fortgesetzt.\n\nDie Suche läuft wieder.", parse_mode="Markdown")
 
 
-@router.message(Command("testen"))
+@router.message(Command("testen", "teste"))
 async def cmd_test(message: Message):
     """Handle /testen command - show sample blocks per provider (case-insensitive, provider-agnostic)"""
     user = await ensure_user(message.from_user)
