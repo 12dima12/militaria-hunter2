@@ -2,6 +2,7 @@ import os
 from motor.motor_asyncio import AsyncIOMotorClient
 from typing import Optional, List
 import logging
+from datetime import datetime
 from models import User, Keyword, StoredListing, Notification
 
 logger = logging.getLogger(__name__)
