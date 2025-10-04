@@ -262,8 +262,11 @@ class EgunProvider(BaseProvider):
                             next_starts.append(off)
                         except Exception:
                             pass
-                # Find any start offset greater than current
-                has_more = any(off > current_start for off in next_starts)
+                # Determine next page as the smallest offset greater than current
+                greater = sorted([off for off in next_starts if off > current_start])
+                next_offset = greater[0] if greater else None
+                # Treat as more pages ONLY if next offset is exactly +50 (adjacent step)
+                has_more = (next_offset == (current_start + 50))
                 
                 return listings, total_count, has_more
                 
