@@ -101,3 +101,12 @@ class Notification(BaseModel):
     sent_at: datetime = Field(default_factory=datetime.utcnow)
     status: str = "sent"  # sent, failed, cancelled
     notification_type: str = "new_item"  # new_item, first_run_sample
+
+
+class DeleteAttemptLog(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    normalized_keyword: str
+    original_keyword: str
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    telegram_message_id: Optional[int] = None
