@@ -504,3 +504,8 @@ class EgunProvider(BaseProvider):
         """Build egun-specific search query"""
         # Simple query normalization (preserve original for better matching)
         return keyword.strip()
+    
+    def _get_next_page_url(self, current_url: str, soup: BeautifulSoup) -> Optional[str]:
+        """Get next page URL for pagination"""
+        from providers.pagination_utils import get_next_page_url_egun
+        return get_next_page_url_egun(current_url, soup)
