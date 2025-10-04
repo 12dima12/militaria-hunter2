@@ -115,3 +115,17 @@ Gefunden: {gefunden} Uhr
 Inseriert am: {inseriert_am} Uhr"""
         
         return message_text
+    
+    def _build_canonical_listing_key(self, item: Listing) -> str:
+        """Build canonical listing key: militaria321.com:<numeric_id>"""
+        # Ensure platform is lowercase and normalized
+        platform = item.platform.lower().strip()
+        
+        # Extract numeric ID if platform_id contains extra data
+        numeric_id = re.search(r'(\d+)', item.platform_id)
+        if numeric_id:
+            clean_id = numeric_id.group(1)
+        else:
+            clean_id = item.platform_id
+        
+        return f"{platform}:{clean_id}"
