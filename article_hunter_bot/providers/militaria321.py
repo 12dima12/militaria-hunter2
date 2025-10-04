@@ -71,8 +71,8 @@ class Militaria321Provider(BaseProvider):
                 
                 params = {
                     "q": keyword,
-                    "adv": "0", 
-                    "searchcat": "1",
+                    "adv": "0",
+                    "searchcat": "1", 
                     "groupsize": str(groupsize),
                     "startat": str(startat)
                 }
