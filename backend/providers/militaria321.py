@@ -187,20 +187,49 @@ class Militaria321Provider(BaseProvider):
             # Check if there are more pages
             has_more = self._has_next_page(soup)
             
-            # Look for listing elements with various selectors (militaria321 specific)
-            listing_selectors = [
-                'tr[bgcolor]',  # Table rows with background color (common pattern)
-                'table tr',     # Table-based layout
-                '.auction',
-                '.auktion', 
-                '.listing',
-                '.item',
-                'td.itemtitle',
-                'a[href*="auktionsdetails"]',  # Links to auction details
-                '[class*="auction"]',
-                '[id*="auction"]',
-                'tr[onclick]'   # Clickable table rows
-            ]
+            # Look for actual auction items, not navigation
+            # First try to find auction detail links specifically
+            auction_links = soup.find_all('a', href=lambda x: x and 'auktionsdetails' in str(x))
+            
+            if auction_links:
+                listing_elements = []
+                # For each auction link, try to find its parent container
+                for link in auction_links:
+                    # Find the parent row or container
+                    parent = link.find_parent('tr') or link.find_parent('td') or link.find_parent('div')
+                    if parent and parent not in listing_elements:
+                        listing_elements.append(parent)
+                logger.info(f"Found {len(auction_links)} auction detail links, {len(listing_elements)} unique containers")
+            else:
+                # Fallback to other selectors excluding navigation
+                listing_selectors = [
+                    'tr[bgcolor]',  # Table rows with background color
+                    'tr[onclick]',   # Clickable table rows
+                    'td[class*="item"]',
+                    'div[class*="auction"]',
+                    'tr:has(a[href*="auktion"])',  # Rows containing auction links
+                ]
+                
+                listing_elements = []
+                for selector in listing_selectors:
+                    elements = soup.select(selector)
+                    if elements:
+                        # Filter out navigation elements
+                        filtered = []
+                        for elem in elements:
+                            text = elem.get_text().lower()
+                            # Skip navigation items
+                            if any(nav_word in text for nav_word in ['startseite', 'suchen', 'browse', 'shops', 'login', 'hilfe']):
+                                continue
+                            # Skip very short content (likely navigation)
+                            if len(text.strip()) < 20:
+                                continue
+                            filtered.append(elem)
+                        
+                        if filtered:
+                            listing_elements = filtered
+                            logger.info(f"Using selector '{selector}' - found {len(filtered)} non-nav elements")
+                            break
             
             listing_elements = []
             for selector in listing_selectors:
