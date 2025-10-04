@@ -531,13 +531,22 @@ class SearchService:
                             items_on_page = len(page_items)
                             items_collected += items_on_page
                             
-                            # Batch add to seen_set
+                            # Batch add to seen_set using stable keys
                             if page_items:
-                                keys_batch = [f"{platform}:{item.platform_id}" for item in page_items]
+                                from utils.listing_key import build_listing_key
+                                keys_batch = []
+                                for item in page_items:
+                                    try:
+                                        key = build_listing_key(platform, item.url)
+                                        keys_batch.append(key)
+                                    except ValueError as e:
+                                        logger.warning(f"Skipping item during seeding due to key error: {e}")
+                                        continue
                                 
                                 # Add to database in batch
-                                await self.db.add_to_seen_set_batch(keyword_id, keys_batch)
-                                keys_added_count += len(keys_batch)
+                                if keys_batch:
+                                    await self.db.add_to_seen_set_batch(keyword_id, keys_batch)
+                                    keys_added_count += len(keys_batch)
                             
                             pages_scanned += 1
                             total_pages_scanned += 1
