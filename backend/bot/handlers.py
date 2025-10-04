@@ -122,55 +122,56 @@ async def cmd_search(message: Message):
 
 
 async def perform_setup_search_with_count(message: Message, keyword, keyword_text: str, searching_msg: Message):
-    """Perform setup search across all providers, show COUNT-ONLY, and seed seen_set"""
+    """Perform full baseline seeding across ALL pages for all providers"""
     try:
         from services.search_service import SearchService
+        from datetime import datetime
         
         # Reset keyword subscription
         await keyword_service.reset_keyword_subscription(keyword.id)
         
-        # Get counts per provider
+        # Perform full baseline seeding (crawls ALL pages)
         search_service = SearchService(db_manager)
-        counts_per_provider = await search_service.get_counts_per_provider(keyword_text)
+        
+        # Update status message
+        await searching_msg.edit_text(f"🔍 **Baseline wird erstellt...**\n\nDurchsuche alle Seiten für \"{keyword_text}\" – dies kann einige Sekunden dauern.", parse_mode="Markdown")
+        
+        seeding_results = await search_service.full_baseline_seed(
+            keyword_text=keyword_text,
+            keyword_id=keyword.id,
+            user_id=keyword.user_id
+        )
         
         # Build confirmation header
         setup_text = f"**Suche eingerichtet: \"{keyword_text}\"**\n\n"
-        setup_text += "Ich melde den aktuellen Stand pro Plattform und benachrichtige Sie künftig nur bei neuen Angeboten.\n\n"
+        setup_text += "Baseline wurde vollständig erstellt. Ich benachrichtige Sie künftig nur bei neuen Angeboten.\n\n"
         
-        # Add count-only lines per provider (deterministic alphabetical order)
-        all_matched_items = []
+        # Add results per provider (deterministic alphabetical order)
+        total_items_seeded = 0
         
-        for platform in sorted(counts_per_provider.keys()):
-            result = counts_per_provider[platform]
+        for platform in sorted(seeding_results.keys()):
+            result = seeding_results[platform]
             
             if result["error"]:
-                count_text = "(Fehler bei der Abfrage)"
-            elif result["matched_count"] == 0:
-                count_text = "0 Treffer gefunden"
-            elif result["total_count"]:
-                count_text = f"{result['total_count']} Treffer gefunden"
-            elif result["has_more"]:
-                count_text = f"mindestens {result['matched_count']} Treffer (weitere Treffer verfügbar)"
+                count_text = f"(Fehler: {result['error']})"
             else:
-                count_text = f"{result['matched_count']} Treffer gefunden"
+                count_text = f"{result['items_collected']} Treffer gefunden ({result['pages_scanned']} Seiten durchsucht)"
+                total_items_seeded += result["items_collected"]
             
-            # Format platform name (capitalize first letter)
+            # Format platform name
             platform_display = platform.replace(".com", "").replace(".de", "").capitalize()
             setup_text += f"• **{platform_display}**: {count_text}\n"
-            
-            # Collect items for baseline seeding
-            if "items" in result and result["items"]:
-                all_matched_items.extend(result["items"])
         
         # Add placeholder for future platforms
         setup_text += "• **Weitere Plattformen**: in Vorbereitung\n\n"
         
-        # Add management info
+        # Add summary
+        setup_text += f"✅ **Baseline komplett**: {total_items_seeded} Angebote erfasst\n"
         setup_text += f"⏱️ Frequenz: Alle 60 Sekunden\n"
         setup_text += f"🔍 Verwenden Sie `/testen {keyword_text}` um Beispielergebnisse zu sehen."
         
-        # Seed the seen_set with all current matches to prevent immediate notifications
-        await keyword_service.seed_seen_set(keyword.id, all_matched_items)
+        # Mark first run completed with current timestamp
+        await keyword_service.mark_first_run_completed(keyword.id, datetime.utcnow())
         
         # Create inline keyboard
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -187,7 +188,7 @@ async def perform_setup_search_with_count(message: Message, keyword, keyword_tex
         # Edit the searching message with results
         await searching_msg.edit_text(setup_text, parse_mode="Markdown", reply_markup=keyboard)
         
-        logger.info(f"Setup search for '{keyword_text}': counts retrieved, seeded {len(all_matched_items)} items")
+        logger.info(f"Full baseline seed for '{keyword_text}': {total_items_seeded} items seeded")
         
     except Exception as e:
         logger.error(f"Error performing setup search: {e}")
