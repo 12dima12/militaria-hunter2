@@ -245,14 +245,17 @@ class Militaria321Provider(BaseProvider):
                 search_indicators = [
                     f'suchergebnisse "{query.lower()}"',
                     f'suche nach "{query.lower()}"',
-                    f'suchbegriff: {query.lower()}',
-                    query.lower() in page_text
+                    f'suchbegriff: {query.lower()}'
                 ]
                 
                 for indicator in search_indicators:
                     if indicator in page_text:
                         query_reflected = True
                         break
+                
+                # Also check if query appears directly in page text
+                if query.lower() in page_text:
+                    query_reflected = True
                 
                 if not query_reflected and page == 1:
                     logger.warning(f"Query '{query}' not reflected in search results page")
