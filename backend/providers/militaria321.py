@@ -151,7 +151,7 @@ class Militaria321Provider(BaseProvider):
         decimal_part = parts[1]
         
         # Add thousands separators (dots) every 3 digits from right
-        if len(integer_part) &gt; 3:
+        if len(integer_part) > 3:
             # Reverse, add dots every 3 chars, reverse back
             reversed_int = integer_part[::-1]
             with_dots = '.'.join(reversed_int[i:i+3] for i in range(0, len(reversed_int), 3))
