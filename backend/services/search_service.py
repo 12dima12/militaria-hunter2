@@ -484,7 +484,7 @@ class SearchService:
             pages_scanned = 0
             items_collected = 0
             keys_added_count = 0
-            visited_urls = set()  # Loop detection
+            # visited_urls = set()  # Loop detection
             
             try:
                 logger.info(f"Starting full baseline seed for '{keyword_text}' on {platform}")
