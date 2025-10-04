@@ -486,7 +486,7 @@ class Militaria321Provider(BaseProvider):
             auction_link = element.find('a', href=lambda x: x and 'auktion' in str(x).lower())
             
             if not auction_link:
-                logger.debug(f"No auction link found in row")
+                logger.debug("No auction link found in row")
                 return None
             
             # Extract title from link text
@@ -502,7 +502,7 @@ class Militaria321Provider(BaseProvider):
             # Extract URL from link
             href = auction_link.get('href')
             if not href:
-                logger.debug(f"No href in auction link")
+                logger.debug("No href in auction link")
                 return None
             
             url = urljoin(self.base_url, href)
