@@ -236,6 +236,31 @@ class Militaria321Provider(BaseProvider):
                 
                 soup = BeautifulSoup(content, 'html.parser')
                 
+                # Verify the response actually reflects our query
+                page_text = soup.get_text().lower()
+                query_normalized = self._normalize_text(query)
+                
+                # Check if the search was actually performed by looking for query reflection
+                query_reflected = False
+                search_indicators = [
+                    f'suchergebnisse "{query.lower()}"',
+                    f'suche nach "{query.lower()}"',
+                    f'suchbegriff: {query.lower()}',
+                    query.lower() in page_text
+                ]
+                
+                for indicator in search_indicators:
+                    if indicator in page_text:
+                        query_reflected = True
+                        break
+                
+                if not query_reflected and page == 1:
+                    logger.warning(f"Query '{query}' not reflected in search results page")
+                    # Check for empty search indicators
+                    if 'suchergebnisse ""' in page_text or 'keine treffer' in page_text:
+                        logger.info("Search returned no results or empty query")
+                        return [], 0, False
+                
                 # Debug: Check for common error messages or empty result indicators
                 error_indicators = [
                     "No results found",
