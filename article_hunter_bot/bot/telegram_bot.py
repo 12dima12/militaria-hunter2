@@ -111,6 +111,10 @@ async def cmd_search(message: Message):
         
         await status_msg.edit_text(response_text)
         
+        # Start polling for this keyword
+        if polling_scheduler:
+            polling_scheduler.add_keyword_job(keyword, user.telegram_id)
+        
         logger.info(f"Search subscription created: '{keyword_text}' with {len(seen_keys)} baseline items")
         
     except Exception as e:
