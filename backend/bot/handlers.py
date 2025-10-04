@@ -194,7 +194,7 @@ async def perform_setup_search_with_count(message: Message, keyword, keyword_tex
         
         # Add global summary if all providers returned zero
         if grand_total == 0:
-            setup_text += f"Für „{keyword_text}" wurden aktuell keine Treffer gefunden. Ich überwache weiter und benachrichtige Sie bei neuen Angeboten.\n\n"
+            setup_text += f"Für \"{keyword_text}\" wurden aktuell keine Treffer gefunden. Ich überwache weiter und benachrichtige Sie bei neuen Angeboten.\n\n"
         
         # Add management info
         setup_text += f"⏱️ Frequenz: Alle 60 Sekunden\n"
