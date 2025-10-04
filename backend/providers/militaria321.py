@@ -188,7 +188,8 @@ class Militaria321Provider(BaseProvider):
             }
             
             async with httpx.AsyncClient(timeout=30.0, headers=headers, follow_redirects=True) as client:
-                for page in range(1, max_pages + 1):
+                page = 1
+                while page <= max_pages:
                     page_listings, page_total, page_has_more, soup, page_url = await self._fetch_page(client, query, page)
                     
                     if page_listings:
