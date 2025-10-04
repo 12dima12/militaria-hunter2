@@ -24,9 +24,10 @@ router = Router()
 db_manager: Optional[DatabaseManager] = None
 search_service: Optional[SearchService] = None
 notification_service: Optional[NotificationService] = None
+polling_scheduler = None  # Will be set by main application
 
 
-def set_services(db_mgr: DatabaseManager, search_svc: SearchService, notif_svc: NotificationService):
+def set_services(db_mgr: DatabaseManager, search_svc: SearchService, notif_svc: NotificationService, scheduler=None):
     """Set services from main application"""
     global db_manager, search_service, notification_service
     db_manager = db_mgr
