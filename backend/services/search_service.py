@@ -193,7 +193,18 @@ class SearchService:
                 is_new = is_new_listing(listing, keyword.since_ts, now, grace_minutes=60)
                 if not is_new:
                     results["skipped_old"] += 1
-                    logger.debug(f"[GUARD 3] Absorbed to baseline (old/no timestamp): {listing_key}")
+                    reason = "missing_posted_ts_grace_exceeded" if getattr(listing, 'posted_ts', None) is None else "posted_ts<since_ts"
+                    # Structured log for absorb
+                    logger.info({
+                        "event": "decision",
+                        "platform": listing.platform,
+                        "listing_key": listing_key,
+                        "posted_ts_utc": str(getattr(listing, 'posted_ts', None)),
+                        "end_ts_utc": str(getattr(listing, 'end_ts', None)),
+                        "since_ts_utc": str(keyword.since_ts),
+                        "decision": "absorbed",
+                        "reason": reason,
+                    })
                     # Add to seen set but don't notify
                     await self.db.add_to_seen_set_batch(keyword.id, [listing_key])
                     continue
