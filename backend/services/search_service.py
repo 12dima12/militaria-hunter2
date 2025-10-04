@@ -190,7 +190,7 @@ class SearchService:
                 await self.db.create_or_update_listing(stored_listing)
                 
                 # GUARD 4: Idempotent notification (try to create, will fail if duplicate)
-                can_notify = await self.db.create_notification_idempotent(
+                notif_insert_ok = await self.db.create_notification_idempotent(
                     user_id=keyword.user_id,
                     keyword_id=keyword.id,
                     listing_key=listing_key,
@@ -201,15 +201,22 @@ class SearchService:
                     }
                 )
                 
-                if can_notify:
+                if notif_insert_ok:
                     new_notifications.append(stored_listing)
-                    logger.info(f"New listing to notify: {listing_key} - {listing.title}")
+                    final_action = "pushed"
+                    logger.info(f"[GUARD 4 PASS] ✓ Notification queued: {listing_key} - {listing.title[:50]}")
                 else:
                     results["skipped_duplicate"] += 1
-                    logger.debug(f"Duplicate notification prevented: {listing_key}")
+                    final_action = "skipped_duplicate"
+                    logger.debug(f"[GUARD 4 FAIL] Duplicate notification prevented: {listing_key}")
                 
                 # Always add to seen_set (atomic operation)
-                await self.db.add_to_seen_set_batch(keyword.id, [listing_key])
+                added_to_seen = await self.db.add_to_seen_set_batch(keyword.id, [listing_key])
+                
+                # Comprehensive per-item log
+                logger.info(f"Item processed: key={listing_key}, in_seen_before={in_seen_set_before}, "
+                           f"notif_insert_ok={notif_insert_ok}, added_to_seen={added_to_seen}, "
+                           f"final_action={final_action}")
             
             results["new_notifications"] = len(new_notifications)
             
