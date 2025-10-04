@@ -35,12 +35,22 @@ class NotificationService:
             return False
         
         try:
-            # Format price
+            # Format price using German locale
             price_text = ""
             if listing.price_value and listing.price_currency:
-                price_text = f"\n💰 **{listing.price_value:.2f} {listing.price_currency}**"
+                from decimal import Decimal
+                from providers.militaria321 import Militaria321Provider
+                
+                provider = Militaria321Provider()
+                formatted_price = provider.format_price_de(Decimal(str(listing.price_value)), listing.price_currency)
+                price_text = f"\n💰 **{formatted_price}**"
             elif listing.price_value:
-                price_text = f"\n💰 **{listing.price_value:.2f}**"
+                from decimal import Decimal
+                from providers.militaria321 import Militaria321Provider
+                
+                provider = Militaria321Provider()
+                formatted_price = provider.format_price_de(Decimal(str(listing.price_value)), "EUR")
+                price_text = f"\n💰 **{formatted_price}**"
             
             # Format location
             location_text = ""
