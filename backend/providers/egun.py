@@ -173,8 +173,11 @@ class EgunProvider(BaseProvider):
                 else:
                     break
                 
-                if page < max_pages:
+                if not crawl_all and page < max_pages:
                     await asyncio.sleep(1)
+                if crawl_all and not page_has_more:
+                    break
+                page += 1
             
             seen_ids = set()
             unique_listings = []
