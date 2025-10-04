@@ -423,7 +423,7 @@ async def cmd_test(message: Message):
         else:
             sample_text = f"**Test-Ergebnisse – militaria321.com**\n\n*(keine Treffer gefunden)*"
         
-        sample_text += f"\n\n🔍 Begriff: **{keyword_text}** (aktiv überwacht)"
+        sample_text += f"\n\n🔍 Begriff: **{keyword.keyword}** (aktiv überwacht)"
         
         await searching_msg.edit_text(sample_text, parse_mode="Markdown")
         
