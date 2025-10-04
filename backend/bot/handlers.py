@@ -364,7 +364,7 @@ async def cmd_resume(message: Message):
 
 @router.message(Command("testen"))
 async def cmd_test(message: Message):
-    """Handle /testen command - re-run sample search"""
+    """Handle /testen command - re-run sample search (case-insensitive)"""
     user = await ensure_user(message.from_user)
     
     args = message.text.split(" ", 1)
