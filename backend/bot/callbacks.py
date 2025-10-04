@@ -324,3 +324,41 @@ async def callback_mute_keyword(callback_query: CallbackQuery):
     except Exception as e:
         logger.error(f"Error muting keyword: {e}")
         await callback_query.answer("❌ Fehler beim Stummschalten", show_alert=True)
+
+
+@callback_router.callback_query(lambda c: c.data.startswith("delete_"))
+async def callback_delete_keyword(callback_query: CallbackQuery):
+    """Handle delete button press from inline keyboard"""
+    await callback_query.answer()
+    
+    keyword_id = callback_query.data.split("_")[-1]
+    
+    try:
+        keyword = await keyword_service.get_keyword_by_id(keyword_id)
+        if not keyword:
+            await callback_query.answer("❌ Suchbegriff nicht gefunden", show_alert=True)
+            return
+        
+        # Check ownership
+        user = await db_manager.get_user_by_telegram_id(callback_query.from_user.id)
+        if not user or keyword.user_id != user.id:
+            await callback_query.answer("❌ Keine Berechtigung", show_alert=True)
+            return
+        
+        # Show confirmation dialog
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="✅ Ja, löschen", callback_data=f"confirm_delete_{keyword.id}"),
+                InlineKeyboardButton(text="❌ Abbrechen", callback_data="cancel_delete")
+            ]
+        ])
+        
+        await callback_query.message.answer(
+            f"⚠️ **Suchbegriff löschen?**\n\n🔍 Begriff: **{keyword.keyword}**\n\n📊 Status: {'Aktiv' if keyword.is_active else 'Pausiert'}\n⏱️ Frequenz: {keyword.frequency_seconds}s\n\n**Diese Aktion kann nicht rückgängig gemacht werden.**",
+            parse_mode="Markdown",
+            reply_markup=keyboard
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in delete callback: {e}")
+        await callback_query.answer("❌ Fehler beim Löschen", show_alert=True)
