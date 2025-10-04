@@ -140,11 +140,15 @@ class Militaria321Provider(BaseProvider):
                         break
                     
                     # For crawl_all, continue based on pagination
-                    if total_count and len(all_items) >= total_count:
+                    # Continue if we got a full page of raw items (before filtering)
+                    if len(page_items) < groupsize:
+                        # Last page reached
+                        logger.info(f"Reached last page {page_index} with {len(page_items)} items")
                         break
                     
-                    if len(page_items) < groupsize:
-                        # Last page
+                    # Also check if we have more pages based on total count
+                    if total_count and (page_index * groupsize) >= total_count:
+                        logger.info(f"Reached estimated end based on total count {total_count}")
                         break
                     
                     # Polite delay between pages
