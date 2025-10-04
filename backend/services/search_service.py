@@ -396,7 +396,7 @@ class SearchService:
             error_msg = f"Error in search_all_active_keywords: {str(e)}"
             results["errors"].append(error_msg)
             logger.error(error_msg)
-        
+        return results
 
     async def get_counts_per_provider(self, keyword_text: str, providers_filter: List[str] = None) -> Dict[str, Dict[str, Any]]:
         """
