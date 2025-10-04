@@ -307,8 +307,7 @@ class TelegramBotManager:
         self.search_service = SearchService(self.db)
         self.notification_service = NotificationService(self.db, self.bot)
         
-        # Set services in handlers
-        set_services(self.db, self.search_service, self.notification_service)
+        # Services will be set by main application with scheduler
         
         # Create dispatcher
         self.dp = Dispatcher()
