@@ -38,7 +38,8 @@ class Militaria321Provider(BaseProvider):
             return False
         
         # All tokens must appear as whole words in the title
-        return all(re.search(rf"\b{re.escape(token)}\b", title_normalized) for token in tokens)
+        # Use Unicode word boundaries to handle international text properly
+        return all(re.search(rf"(?<!\w){re.escape(token)}(?!\w)", title_normalized, re.UNICODE) for token in tokens)
     
     def parse_price(self, raw_price: str) -> Tuple[Optional[Decimal], str]:
         """Parse price string and return (decimal_value, currency_code)"""
