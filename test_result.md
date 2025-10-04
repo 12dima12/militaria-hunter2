@@ -303,7 +303,7 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Provider search and parsing fixes"
+    - "Phase 1 posted_ts implementation complete"
     - "End-to-end bot testing with Telegram"
   stuck_tasks: []
   test_all: false
