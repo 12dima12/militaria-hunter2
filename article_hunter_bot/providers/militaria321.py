@@ -117,7 +117,6 @@ class Militaria321Provider(BaseProvider):
                         if self._matches_keyword(item.title, keyword):
                             matched_items.append(item)
                     
-                    print(f"DEBUG: Page {page_index} matched items: {len(matched_items)}")
                     all_items.extend(matched_items)
                     
                     # Early stop for polling mode if all items are too old
