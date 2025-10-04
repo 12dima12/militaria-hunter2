@@ -263,6 +263,7 @@ class Militaria321Provider(BaseProvider):
                     if 'suchergebnisse ""' in page_text or 'keine treffer' in page_text:
                         logger.info("Search returned no results or empty query")
                         return [], 0, False
+                    # Continue processing even if query not reflected - might be valid results
                 
                 # Debug: Check for common error messages or empty result indicators
                 error_indicators = [
