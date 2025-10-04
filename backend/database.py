@@ -41,7 +41,7 @@ class DatabaseManager:
             
             # Keywords collection indexes
             await self.db.keywords.create_index("user_id")
-            await self.db.keywords.create_index([("user_id", 1), ("keyword", 1)], unique=True)
+            await self.db.keywords.create_index([("user_id", 1), ("normalized_keyword", 1)], unique=True)
             
             # Listings collection indexes
             await self.db.listings.create_index([("platform", 1), ("platform_id", 1)], unique=True)
