@@ -55,7 +55,15 @@ class DatabaseManager:
             # Notifications indexes (with idempotency guard)
             await self.db.notifications.create_index("user_id")
             await self.db.notifications.create_index("sent_at")
+            
             # CRITICAL: Unique index for idempotency - prevents duplicate notifications
+            # Drop old index if exists (to handle migration)
+            try:
+                await self.db.notifications.drop_index("idempotency_guard")
+            except:
+                pass  # Index doesn't exist, that's fine
+            
+            # Create new unique index
             await self.db.notifications.create_index(
                 [("user_id", 1), ("keyword_id", 1), ("listing_key", 1)],
                 unique=True,
