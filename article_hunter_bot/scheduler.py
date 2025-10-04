@@ -64,14 +64,16 @@ class PollingScheduler:
         
         job_id = f"keyword_{keyword.id}"
         
-        # Fixed 60-second polling as specified
+        # Fixed 60-second polling as specified with proper job control
         self.scheduler.add_job(
             func=self._poll_keyword,
             trigger=IntervalTrigger(seconds=60),
             args=[keyword.id, user_telegram_id],
             id=job_id,
             name=f"Poll keyword: {keyword.original_keyword}",
-            replace_existing=True
+            replace_existing=True,
+            max_instances=1,  # Prevent overlapping runs
+            coalesce=True     # Merge pending executions
         )
         
         self.active_jobs.add(keyword.id)
