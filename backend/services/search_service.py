@@ -236,19 +236,28 @@ class SearchService:
                 if notif_insert_ok:
                     new_notifications.append(stored_listing)
                     final_action = "pushed"
+                    reason = "posted_ts>=since_ts"
                     logger.info(f"[GUARD 4 PASS] ✓ Notification queued: {listing_key} - {listing.title[:50]}")
                 else:
                     results["skipped_duplicate"] += 1
-                    final_action = "skipped_duplicate"
+                    final_action = "notif_duplicate"
+                    reason = "duplicate_notification"
                     logger.debug(f"[GUARD 4 FAIL] Duplicate notification prevented: {listing_key}")
                 
                 # Always add to seen_set (atomic operation)
                 added_to_seen = await self.db.add_to_seen_set_batch(keyword.id, [listing_key])
                 
-                # Comprehensive per-item log
-                logger.info(f"Item processed: key={listing_key}, in_seen_before={in_seen_set_before}, "
-                           f"notif_insert_ok={notif_insert_ok}, added_to_seen={added_to_seen}, "
-                           f"final_action={final_action}, posted_ts={getattr(listing, 'posted_ts', None)}, since_ts={keyword.since_ts}")
+                # Structured per-item decision log
+                logger.info({
+                    "event": "decision",
+                    "platform": listing.platform,
+                    "listing_key": listing_key,
+                    "posted_ts_utc": str(getattr(listing, 'posted_ts', None)),
+                    "end_ts_utc": str(getattr(listing, 'end_ts', None)),
+                    "since_ts_utc": str(keyword.since_ts),
+                    "decision": final_action,
+                    "reason": reason,
+                })
             
             results["new_notifications"] = len(new_notifications)
             
