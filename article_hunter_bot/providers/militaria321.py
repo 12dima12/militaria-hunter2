@@ -295,16 +295,29 @@ class Militaria321Provider(BaseProvider):
             # Look for result count indicators
             text = soup.get_text()
             
-            # Pattern: "X Treffer gefunden" or similar
-            match = re.search(r'([0-9]+)\s+(?:Treffer|Ergebnis)', text, re.IGNORECASE)
-            if match:
-                return int(match.group(1))
+            # Multiple patterns for German result count
+            patterns = [
+                r'([0-9]+)\s+(?:Treffer|Ergebnis|gefunden)',  # "X Treffer gefunden"  
+                r'(?:Treffer|Ergebnis|gefunden).*?([0-9]+)',   # "Treffer: X"
+                r'([0-9]+)\s+(?:von|aus|total)',              # "X von Y"
+                r'([0-9]+)\s+(?:Auktionen|Angebote)',         # "X Auktionen"
+            ]
             
-            # Fallback: use items on first page as minimum
-            return items_on_page
+            for pattern in patterns:
+                match = re.search(pattern, text, re.IGNORECASE)
+                if match:
+                    count = int(match.group(1))
+                    logger.debug(f"Extracted total count: {count} using pattern: {pattern}")
+                    # Return None for very large counts to force page-by-page crawling
+                    return None if count > 1000 else count
             
-        except Exception:
-            return items_on_page
+            # No count found - use None to force complete crawling
+            logger.debug("No total count found, will crawl until empty page")
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Error extracting total count: {e}")
+            return None
     
     def _matches_keyword(self, title: str, keyword: str) -> bool:
         """Title-only keyword matching with Unicode NFKC normalization
