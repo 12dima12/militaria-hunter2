@@ -62,21 +62,43 @@ class SearchService:
         self.notification_service = NotificationService(db_manager)
     
     async def search_keyword(self, keyword: Keyword) -> Dict[str, Any]:
-        """Search for a keyword and notify only for truly new listings"""
+        """
+        Search for a keyword and notify only for truly new listings.
+        
+        Applies all guards:
+        1. Baseline completion check
+        2. Seen set check  
+        3. posted_ts gating
+        4. Idempotent notification (unique index)
+        """
         results = {
             "keyword_id": keyword.id,
             "keyword_text": keyword.keyword,
             "new_notifications": 0,
             "matched_listings": 0,
             "total_raw_listings": 0,
-            "errors": []
+            "errors": [],
+            "skipped_seen": 0,
+            "skipped_old": 0,
+            "skipped_duplicate": 0
         }
         
         try:
+            # GUARD 1: Check baseline completion
+            if keyword.baseline_status != "complete":
+                logger.warning(f"Skipping polling for '{keyword.keyword}' - baseline not complete (status: {keyword.baseline_status})")
+                results["errors"].append(f"Baseline status: {keyword.baseline_status}")
+                return results
+            
             # Search each platform
             all_raw_listings = []
             
             for platform in keyword.platforms:
+                # Skip platforms with baseline errors
+                if platform in keyword.baseline_errors:
+                    logger.debug(f"Skipping {platform} due to baseline error: {keyword.baseline_errors[platform]}")
+                    continue
+                
                 if platform in self.providers:
                     try:
                         provider = self.providers[platform]
@@ -97,11 +119,13 @@ class SearchService:
             
             # Apply title-only matching to get relevant listings
             matched_listings = []
-            provider = self.providers[keyword.platforms[0]]  # Use first platform's provider for matching
             
             for listing in all_raw_listings:
-                if provider.matches_keyword(listing.title, keyword.keyword):
-                    matched_listings.append(listing)
+                # Get provider for this listing's platform
+                if listing.platform in self.providers:
+                    provider = self.providers[listing.platform]
+                    if provider.matches_keyword(listing.title, keyword.keyword):
+                        matched_listings.append(listing)
             
             results["matched_listings"] = len(matched_listings)
             logger.info(f"Keyword '{keyword.keyword}': {len(all_raw_listings)} raw -> {len(matched_listings)} matched")
