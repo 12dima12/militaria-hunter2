@@ -513,7 +513,7 @@ class SearchService:
     async def crawl_all_counts(self, keyword: Keyword, providers_filter: List[str] = None, update_db: bool = True) -> Dict[str, Dict[str, Any]]:
         """Full crawl per provider and (optionally) upsert listings. Returns counts per provider."""
         if providers_filter is None:
-            providers_filter = keyword.platforms
+            providers_filter = list(self.providers.keys())
         results: Dict[str, Dict[str, Any]] = {}
         for platform in providers_filter:
             if platform not in self.providers:
