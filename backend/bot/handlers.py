@@ -216,12 +216,43 @@ async def perform_setup_search_with_count(message: Message, keyword, keyword_tex
 async def cmd_list(message: Message):
     """Handle /liste command"""
     user = await ensure_user(message.from_user)
-    
+
     keywords = await keyword_service.get_user_keywords(user.id)
-    
+
     if not keywords:
         await message.answer("📝 Sie haben noch keine Suchbegriffe erstellt.\n\nVerwenden Sie `/suche <Begriff>` um zu beginnen.", parse_mode="Markdown")
         return
+
+    # Build listing text
+    text = "📋 **Ihre Suchbegriffe:**\n\n"
+
+    for kw in keywords:
+        status_emoji = "✅" if kw.is_active else "⏸️"
+        mute_emoji = " 🔇" if kw.is_muted else ""
+
+        freq_text = f"{kw.frequency_seconds}s"
+        if kw.frequency_seconds >= 60:
+            freq_text = f"{kw.frequency_seconds // 60}m"
+
+        last_check = "Nie"
+        if kw.last_checked:
+            try:
+                last_check = kw.last_checked.strftime("%d.%m. %H:%M")
+            except Exception:
+                last_check = "-"
+
+        text += f"{status_emoji} **{kw.keyword}**{mute_emoji}\n"
+        text += f"   📊 Frequenz: {freq_text} | 🕐 Letzter Check: {last_check}\n\n"
+
+    # Add management buttons
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="➕ Neuer Begriff", callback_data="new_keyword"),
+            InlineKeyboardButton(text="📤 Exportieren", callback_data="export_keywords")
+        ]
+    ])
+
+    await message.answer(text, parse_mode="Markdown", reply_markup=keyboard)
     
 @router.message(Command("debugtimestamp"))
 async def debug_timestamp(message: types.Message):
