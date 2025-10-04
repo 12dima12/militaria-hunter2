@@ -130,6 +130,28 @@ class Militaria321Provider(BaseProvider):
                     if indicator.lower() in page_text:
                         logger.info(f"Found error indicator on page: '{indicator}'")
                 
+                # Debug: Log some of the page content to see what we're getting
+                if query.lower() == "kappmesser" and page == 1:
+                    logger.info(f"Debug - Page title: {soup.title.string if soup.title else 'No title'}")
+                    logger.info(f"Debug - Page text snippet: {page_text[:500]}")
+                    
+                    # Look for specific militaria321 patterns
+                    auction_links = soup.find_all('a', href=lambda x: x and 'auktionsdetails' in x)
+                    logger.info(f"Debug - Found {len(auction_links)} auction detail links")
+                    
+                    if auction_links:
+                        for i, link in enumerate(auction_links[:3]):
+                            logger.info(f"Debug - Link {i+1}: {link.get('href')} - {link.get_text().strip()[:50]}")
+                    
+                    # Look for table structures
+                    tables = soup.find_all('table')
+                    logger.info(f"Debug - Found {len(tables)} tables")
+                    
+                    # Look for any tr elements with content
+                    rows = soup.find_all('tr')
+                    content_rows = [row for row in rows if row.get_text().strip() and len(row.get_text().strip()) > 20]
+                    logger.info(f"Debug - Found {len(content_rows)} content rows")
+                
                 listings, total_count, has_more = self._parse_search_page(soup, query, page)
                 
                 logger.info(f"Page {page}: Found {len(listings)} listings")
