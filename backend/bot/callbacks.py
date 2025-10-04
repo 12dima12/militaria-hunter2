@@ -23,31 +23,32 @@ def set_services(db_mgr, keyword_svc):
 
 @callback_router.callback_query(lambda c: c.data.startswith("confirm_delete_"))
 async def callback_confirm_delete(callback_query: CallbackQuery):
-    """Handle delete confirmation"""
-    await callback_query.answer()
+    """Handle delete confirmation - DISABLED BY DESIGN"""
+    await callback_query.answer("Löschfunktion nicht verfügbar", show_alert=True)
     
-    keyword_id = callback_query.data.split("_")[-1]
-    
+    # Log the delete attempt
     try:
-        keyword = await keyword_service.get_keyword_by_id(keyword_id)
-        if not keyword:
-            await callback_query.message.edit_text("❌ Suchbegriff nicht gefunden.")
-            return
-        
-        # Check ownership
         user = await db_manager.get_user_by_telegram_id(callback_query.from_user.id)
-        if not user or keyword.user_id != user.id:
-            await callback_query.message.edit_text("❌ Keine Berechtigung.")
-            return
-        
-        # Delete keyword
-        await keyword_service.delete_keyword(keyword_id)
-        
-        await callback_query.message.edit_text(f"✅ Suchbegriff **'{keyword.keyword}'** wurde gelöscht.", parse_mode="Markdown")
-        
+        if user:
+            keyword_id = callback_query.data.split("_")[-1]
+            keyword = await keyword_service.get_keyword_by_id(keyword_id)
+            
+            if keyword and keyword.user_id == user.id:
+                from models import DeleteAttemptLog
+                log_entry = DeleteAttemptLog(
+                    user_id=user.id,
+                    normalized_keyword=keyword.normalized_keyword,
+                    original_keyword=keyword.keyword,
+                    telegram_message_id=callback_query.message.message_id
+                )
+                await db_manager.log_delete_attempt(log_entry)
     except Exception as e:
-        logger.error(f"Error deleting keyword: {e}")
-        await callback_query.message.edit_text("❌ Fehler beim Löschen des Suchbegriffs.")
+        logger.error(f"Error logging delete attempt: {e}")
+    
+    await callback_query.message.edit_text(
+        "❌ **Funktion nicht verfügbar**\n\nDie Löschfunktion ist derzeit nicht verfügbar. Bitte verwenden Sie **/pausieren** oder **/stumm** als Alternative.",
+        parse_mode="Markdown"
+    )
 
 
 @callback_router.callback_query(lambda c: c.data == "cancel_delete")
