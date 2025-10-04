@@ -310,7 +310,7 @@ async def cmd_delete(message: Message):
 
 @router.message(Command("pausieren"))
 async def cmd_pause(message: Message):
-    """Handle /pausieren command"""
+    """Handle /pausieren command (case-insensitive)"""
     user = await ensure_user(message.from_user)
     
     args = message.text.split(" ", 1)
@@ -326,13 +326,13 @@ async def cmd_pause(message: Message):
         return
     
     if not keyword.is_active:
-        await message.answer(f"⚠️ Suchbegriff **'{keyword_text}'** ist bereits pausiert.", parse_mode="Markdown")
+        await message.answer(f"⚠️ Suchbegriff **'{keyword.keyword}'** ist bereits pausiert.", parse_mode="Markdown")
         return
     
     # Pause keyword
     await keyword_service.update_keyword_status(keyword.id, is_active=False)
     
-    await message.answer(f"⏸️ Suchbegriff **'{keyword_text}'** wurde pausiert.\n\nVerwenden Sie `/fortsetzen {keyword_text}` um fortzufahren.", parse_mode="Markdown")
+    await message.answer(f"⏸️ Suchbegriff **'{keyword.keyword}'** wurde pausiert.\n\nVerwenden Sie `/fortsetzen {keyword.keyword}` um fortzufahren.", parse_mode="Markdown")
 
 
 @router.message(Command("fortsetzen"))
