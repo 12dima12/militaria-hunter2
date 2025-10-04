@@ -158,16 +158,19 @@ class Militaria321Provider(BaseProvider):
             # Check if there are more pages
             has_more = self._has_next_page(soup)
             
-            # Look for listing elements with various selectors
+            # Look for listing elements with various selectors (militaria321 specific)
             listing_selectors = [
-                '.product-item',
-                '.listing-item', 
-                '.search-result',
+                'tr[bgcolor]',  # Table rows with background color (common pattern)
+                'table tr',     # Table-based layout
+                '.auction',
+                '.auktion', 
+                '.listing',
                 '.item',
-                'article',
-                '[data-product-id]',
-                '.grid-item',
-                '.auction-item'
+                'td.itemtitle',
+                'a[href*="auktionsdetails"]',  # Links to auction details
+                '[class*="auction"]',
+                '[id*="auction"]',
+                'tr[onclick]'   # Clickable table rows
             ]
             
             listing_elements = []
