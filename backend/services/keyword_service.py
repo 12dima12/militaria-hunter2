@@ -135,4 +135,12 @@ class KeywordService:
     def is_listing_seen(self, keyword: Keyword, platform: str, platform_id: str) -> bool:
         """Check if a listing has been seen before"""
         listing_key = self.make_listing_key(platform, platform_id)
+
+    async def mark_first_run_completed(self, keyword_id: str, since_ts: datetime) -> bool:
+        """Mark first run as completed and set since_ts"""
+        return await self.db.update_keyword(keyword_id, {
+            "first_run_completed": True,
+            "since_ts": since_ts
+        })
+
         return listing_key in keyword.seen_listing_keys
