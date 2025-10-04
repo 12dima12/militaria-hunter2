@@ -29,10 +29,11 @@ polling_scheduler = None  # Will be set by main application
 
 def set_services(db_mgr: DatabaseManager, search_svc: SearchService, notif_svc: NotificationService, scheduler=None):
     """Set services from main application"""
-    global db_manager, search_service, notification_service
+    global db_manager, search_service, notification_service, polling_scheduler
     db_manager = db_mgr
     search_service = search_svc
     notification_service = notif_svc
+    polling_scheduler = scheduler
 
 
 @router.message(Command("search"))
