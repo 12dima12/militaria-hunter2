@@ -33,6 +33,15 @@ async def main():
         bot_manager.notification_service
     )
     
+    # Pass scheduler to bot handlers
+    from bot.telegram_bot import set_services
+    set_services(
+        db_manager,
+        bot_manager.search_service,
+        bot_manager.notification_service,
+        scheduler
+    )
+    
     try:
         # Start scheduler
         await scheduler.start()
