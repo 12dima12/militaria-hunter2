@@ -421,7 +421,7 @@ async def cmd_test(message: Message):
             elif search_result.has_more:
                 sample_text += f"*(weitere Treffer verfügbar)*"
         else:
-            sample_text = f"**Test-Ergebnisse – militaria321.com**\n\n❌ Keine Treffer für **'{keyword_text}'** gefunden."
+            sample_text = f"**Test-Ergebnisse – militaria321.com**\n\n*(keine Treffer gefunden)*"
         
         sample_text += f"\n\n🔍 Begriff: **{keyword_text}** (aktiv überwacht)"
         
