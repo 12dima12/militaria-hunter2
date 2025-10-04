@@ -351,7 +351,7 @@ class Militaria321Provider(BaseProvider):
                     # Apply strict keyword matching on title only
                     if self.matches_keyword(listing.title, original_query):
                         listings.append(listing)
-                        logger.info(f"✓ Matched #{i+1}: '{listing.title}' -&gt; ID:{listing.platform_id}")
+                        logger.info(f"✓ Matched #{i+1}: '{listing.title}' -> ID:{listing.platform_id}")
                     else:
                         logger.debug(f"✗ Container {i+1}: Title '{listing.title}' doesn't match query '{original_query}'")
                 except Exception as e:
