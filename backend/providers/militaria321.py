@@ -140,24 +140,38 @@ class Militaria321Provider(BaseProvider):
                 # Debug: Log some of the page content to see what we're getting
                 if query.lower() == "kappmesser" and page == 1:
                     logger.info(f"Debug - Page title: {soup.title.string if soup.title else 'No title'}")
-                    logger.info(f"Debug - Page text snippet: {page_text[:500]}")
                     
-                    # Look for specific militaria321 patterns
-                    auction_links = soup.find_all('a', href=lambda x: x and 'auktionsdetails' in x)
-                    logger.info(f"Debug - Found {len(auction_links)} auction detail links")
+                    # Look for any links that might be auction items
+                    all_links = soup.find_all('a', href=True)
+                    auction_related_links = []
+                    for link in all_links:
+                        href = link.get('href', '')
+                        if any(pattern in href.lower() for pattern in ['auktion', 'detail', 'item', 'lot']):
+                            auction_related_links.append((href, link.get_text().strip()[:50]))
                     
-                    if auction_links:
-                        for i, link in enumerate(auction_links[:3]):
-                            logger.info(f"Debug - Link {i+1}: {link.get('href')} - {link.get_text().strip()[:50]}")
+                    logger.info(f"Debug - Found {len(auction_related_links)} auction-related links")
+                    for i, (href, text) in enumerate(auction_related_links[:5]):
+                        logger.info(f"Debug - Auction link {i+1}: {href} - {text}")
                     
-                    # Look for table structures
-                    tables = soup.find_all('table')
-                    logger.info(f"Debug - Found {len(tables)} tables")
+                    # Look for form elements and search results indicators
+                    forms = soup.find_all('form')
+                    logger.info(f"Debug - Found {len(forms)} forms")
                     
-                    # Look for any tr elements with content
-                    rows = soup.find_all('tr')
-                    content_rows = [row for row in rows if row.get_text().strip() and len(row.get_text().strip()) > 20]
-                    logger.info(f"Debug - Found {len(content_rows)} content rows")
+                    # Look for any text indicating results count
+                    text_content = soup.get_text()
+                    result_patterns = ['treffer', 'result', 'gefunden', 'found', 'artikel', 'auktion']
+                    for pattern in result_patterns:
+                        if pattern in text_content.lower():
+                            # Find lines containing the pattern
+                            lines = [line.strip() for line in text_content.split('\n') if pattern in line.lower() and line.strip()]
+                            if lines:
+                                logger.info(f"Debug - Lines with '{pattern}': {lines[:3]}")
+                    
+                    # Check if there's a message about no results
+                    no_result_patterns = ['keine treffer', 'no results', '0 gefunden', 'nothing found']
+                    for pattern in no_result_patterns:
+                        if pattern in text_content.lower():
+                            logger.info(f"Debug - Found no-results pattern: '{pattern}'")
                 
                 listings, total_count, has_more = self._parse_search_page(soup, query, page)
                 
