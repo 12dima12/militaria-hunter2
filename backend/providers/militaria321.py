@@ -9,7 +9,7 @@ import re
 import unicodedata
 from decimal import Decimal, InvalidOperation
 import random
-import pytz
+from zoneinfo import ZoneInfo
 
 from .base import BaseProvider
 from models import Listing, SearchResult
