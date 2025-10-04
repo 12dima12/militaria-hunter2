@@ -83,37 +83,34 @@ class NotificationService:
     def _format_notification_message(self, keyword: Keyword, item: Listing) -> str:
         """Format notification message with German texts and Berlin timezone
         
-        Fields: Suchbegriff, Titel, Preis (German format), Plattform, Link, 
-               Thumbnail (if available), Gefunden (Berlin time), Inseriert am
+        Template as specified in requirements
         """
-        # Format price in German
-        preis = self.militaria321_provider.format_price_de(item.price_value, item.price_currency)
+        # Format price in German (use / if missing)
+        if item.price_value is not None:
+            preis = self.militaria321_provider.format_price_de(item.price_value, item.price_currency)
+        else:
+            preis = "/"
         
         # Format timestamps in Berlin timezone
         berlin_tz = ZoneInfo('Europe/Berlin')
-        gefunden = datetime.now(berlin_tz).strftime("%d.%m.%Y %H:%M Uhr")
+        gefunden = datetime.now(berlin_tz).strftime("%d.%m.%Y %H:%M")
         
-        # Format posted_ts if available
+        # Format posted_ts if available (Inseriert am / Auktionsstart)
         if item.posted_ts:
+            # Convert UTC to Berlin time for display
             posted_berlin = item.posted_ts.replace(tzinfo=ZoneInfo('UTC')).astimezone(berlin_tz)
-            inseriert_am = posted_berlin.strftime("%d.%m.%Y %H:%M Uhr")
+            inseriert_am = posted_berlin.strftime("%d.%m.%Y %H:%M")
         else:
             inseriert_am = "/"
         
-        # Build message with formal German tone
-        message_lines = [
-            f"🔍 <b>Neues Angebot gefunden</b>",
-            "",
-            f"<b>Suchbegriff:</b> {keyword.original_keyword}",
-            f"<b>Titel:</b> {item.title}",
-            f"<b>Preis:</b> {preis}",
-            f"<b>Plattform:</b> {item.platform}",
-            f"<b>Gefunden:</b> {gefunden}",
-            f"<b>Inseriert am:</b> {inseriert_am}"
-        ]
+        # Build message with exact German template
+        message_text = f"""🔎 Neues Angebot gefunden
+
+Suchbegriff: {keyword.original_keyword}
+Titel: {item.title}
+Preis: {preis}
+Plattform: militaria321.com
+Gefunden: {gefunden} Uhr
+Inseriert am: {inseriert_am} Uhr"""
         
-        # Add thumbnail if available
-        if item.image_url:
-            message_lines.insert(-2, f"<b>Bild:</b> <a href='{item.image_url}'>🖼️ Thumbnail</a>")
-        
-        return "\n".join(message_lines)
+        return message_text
