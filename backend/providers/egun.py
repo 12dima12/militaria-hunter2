@@ -129,7 +129,7 @@ class EgunProvider(BaseProvider):
         currency_symbol = "€" if currency == "EUR" else currency
         return f"{integer_part},{decimal_part} {currency_symbol}"
     
-    async def search(self, keyword: str, since_ts: Optional[datetime] = None, sample_mode: bool = False) -> SearchResult:
+    async def search(self, keyword: str, since_ts: Optional[datetime] = None, sample_mode: bool = False, crawl_all: bool = False) -> SearchResult:
         """Search egun.de for listings"""
         try:
             query = self.build_query(keyword)
