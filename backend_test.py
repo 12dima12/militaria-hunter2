@@ -28,13 +28,15 @@ class TelegramBotTester:
     
     def __init__(self):
         # Get backend URL from frontend env
-        with open('/app/frontend/.env', 'r') as f:
-            for line in f:
-                if line.startswith('REACT_APP_BACKEND_URL='):
-                    self.backend_url = line.split('=', 1)[1].strip()
-                    break
-        else:
-            self.backend_url = "http://localhost:8001"
+        self.backend_url = "http://localhost:8001"  # Default
+        try:
+            with open('/app/frontend/.env', 'r') as f:
+                for line in f:
+                    if line.startswith('REACT_APP_BACKEND_URL='):
+                        self.backend_url = line.split('=', 1)[1].strip()
+                        break
+        except FileNotFoundError:
+            pass
         
         self.api_url = f"{self.backend_url}/api"
         
