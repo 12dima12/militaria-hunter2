@@ -168,8 +168,8 @@ class Militaria321Provider(BaseProvider):
         """Parse items from militaria321.com search results page"""
         items = []
         
-        # Find auction links containing "/auktion/"
-        auction_links = soup.find_all('a', href=re.compile(r'/auktion/'))
+        # Find auction links containing "auktion/" (with or without leading slash)
+        auction_links = soup.find_all('a', href=re.compile(r'auktion/'))
         
         for link in auction_links:
             try:
