@@ -509,7 +509,10 @@ class Militaria321Provider(BaseProvider):
                     break
             
             if not title:
+                logger.debug(f"No title found in container")
                 return None
+            
+            logger.debug(f"Extracted title: '{title}'")
             
             # Extract URL
             url = None
