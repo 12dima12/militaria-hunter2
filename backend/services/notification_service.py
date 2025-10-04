@@ -1,14 +1,33 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 import os
+from zoneinfo import ZoneInfo
 
 from models import User, Keyword, StoredListing, Notification
 from database import DatabaseManager
 
 logger = logging.getLogger(__name__)
+
+_TZ_BERLIN = ZoneInfo("Europe/Berlin")
+
+
+def _fmt_ts_de(dt):
+    """
+    Return a 'dd.MM. %H:%M' string in Europe/Berlin, or '/' if dt is missing.
+    Accepts naive/aware datetimes; naive is interpreted as UTC.
+    """
+    if not dt:
+        return "/"
+    try:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+        local = dt.astimezone(_TZ_BERLIN)
+        return local.strftime("%d.%m. %H:%M")
+    except Exception:
+        return "/"
 
 
 class NotificationService:
