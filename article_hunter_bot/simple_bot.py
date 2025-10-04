@@ -269,6 +269,11 @@ async def handle_delete_keyword_callback(callback: CallbackQuery):
 
 async def cmd_admin_clear(message: Message):
     """Handle /admin clear and /clear commands - public wipe of stored products"""
+    # Check if it's /admin clear (not just /admin)
+    if message.text.startswith("/admin") and "clear" not in message.text:
+        await message.answer("❓ Verwenden Sie `/admin clear` zum Bereinigen der Datenbank.")
+        return
+    
     user = await ensure_user(message.from_user)
     
     # Create confirmation keyboard
