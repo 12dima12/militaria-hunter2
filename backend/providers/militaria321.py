@@ -22,6 +22,108 @@ class Militaria321Provider(BaseProvider):
         super().__init__("militaria321.com")
         self.base_url = "https://www.militaria321.com"
         self.search_url = f"{self.base_url}/search.cfm"
+    
+    def _normalize_text(self, text: str) -> str:
+        """Normalize text for matching using Unicode NFKC + casefold + trim"""
+        if not text:
+            return ""
+        return unicodedata.normalize("NFKC", text).casefold().strip()
+    
+    def matches_keyword(self, title: str, keyword: str) -> bool:
+        """Check if title matches keyword using proper tokenization"""
+        title_normalized = self._normalize_text(title)
+        tokens = [t for t in self._normalize_text(keyword).split() if t]
+        
+        if not tokens:
+            return False
+        
+        # All tokens must appear as whole words in the title
+        return all(re.search(rf"\b{re.escape(token)}\b", title_normalized) for token in tokens)
+    
+    def parse_price(self, raw_price: str) -> Tuple[Optional[Decimal], str]:
+        """Parse price string and return (decimal_value, currency_code)"""
+        if not raw_price or not raw_price.strip():
+            return None, "EUR"
+        
+        text = raw_price.strip()
+        
+        # Find currency
+        currency = "EUR"  # Default
+        currency_patterns = [
+            (r'€', 'EUR'),
+            (r'\bEUR\b', 'EUR'),
+            (r'\$', 'USD'),
+            (r'\bUSD\b', 'USD'),
+            (r'£', 'GBP'),
+            (r'\bGBP\b', 'GBP'),
+        ]
+        
+        for pattern, curr_code in currency_patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                currency = curr_code
+                break
+        
+        # Remove currency symbols and letters to get just numbers and separators
+        number_text = re.sub(r'[€$£]|EUR|USD|GBP', '', text, flags=re.IGNORECASE).strip()
+        
+        # Find all digit sequences with separators
+        number_match = re.search(r'[\d.,]+', number_text)
+        if not number_match:
+            return None, currency
+        
+        number_str = number_match.group()
+        
+        try:
+            # Detect decimal separator (last occurrence of . or , followed by 1-2 digits)
+            decimal_match = re.search(r'[.,](\d{1,2})$', number_str)
+            
+            if decimal_match:
+                # Has decimal part
+                decimal_sep = number_str[decimal_match.start()]
+                decimal_part = decimal_match.group(1)
+                
+                # Everything before the decimal separator
+                integer_part = number_str[:decimal_match.start()]
+                
+                # Remove thousands separators (the other separator type)
+                thousands_sep = ',' if decimal_sep == '.' else '.'
+                integer_part = integer_part.replace(thousands_sep, '')
+                
+                # Combine and normalize to decimal format
+                normalized = f"{integer_part}.{decimal_part}"
+            else:
+                # No decimal part, just remove thousands separators
+                normalized = number_str.replace(',', '').replace('.', '')
+            
+            return Decimal(normalized), currency
+            
+        except (InvalidOperation, ValueError) as e:
+            logger.debug(f"Failed to parse price '{raw_price}': {e}")
+            return None, currency
+    
+    def format_price_de(self, value: Decimal, currency: str = "EUR") -> str:
+        """Format price in German locale style"""
+        if value is None:
+            return ""
+        
+        # Convert to string with 2 decimal places
+        value_str = f"{value:.2f}"
+        
+        # Split into integer and decimal parts
+        parts = value_str.split('.')
+        integer_part = parts[0]
+        decimal_part = parts[1]
+        
+        # Add thousands separators (dots) every 3 digits from right
+        if len(integer_part) > 3:
+            # Reverse, add dots every 3 chars, reverse back
+            reversed_int = integer_part[::-1]
+            with_dots = '.'.join(reversed_int[i:i+3] for i in range(0, len(reversed_int), 3))
+            integer_part = with_dots[::-1]
+        
+        # Format: "1.234,56 €" (dot for thousands, comma for decimal, space before currency)
+        currency_symbol = "€" if currency == "EUR" else currency
+        return f"{integer_part},{decimal_part} {currency_symbol}"
         
     async def search(self, keyword: str, since_ts: Optional[datetime] = None, sample_mode: bool = False) -> SearchResult:
         """Search militaria321.com for listings"""
