@@ -121,90 +121,58 @@ async def cmd_search(message: Message):
         await searching_msg.edit_text("❌ Fehler beim Erstellen des Suchbegriffs. Bitte versuchen Sie es erneut.")
 
 
-async def perform_first_run_sample(message: Message, keyword, keyword_text: str, searching_msg: Message):
-    """Perform first-run sample search and display results"""
+async def perform_setup_search_with_count(message: Message, keyword, keyword_text: str, searching_msg: Message):
+    """Perform setup search, count existing matches, and seed seen_set"""
     try:
         from providers.militaria321 import Militaria321Provider
-        from services.search_service import SearchService
         
-        # Initialize provider and search
+        # Reset keyword subscription
+        await keyword_service.reset_keyword_subscription(keyword.id)
+        
+        # Initialize provider and search with comprehensive results
         provider = Militaria321Provider()
         search_result = await provider.search(keyword_text, sample_mode=True)
         
-        # Create sample message
-        if search_result.items:
-            # Show top 3 results
-            sample_text = f"**Erste Treffer – militaria321.com**\n\n"
-            
-            shown_count = min(3, len(search_result.items))
-            for i in range(shown_count):
-                item = search_result.items[i]
-                
-                # Format price using German locale
-                price_str = ""
-                if item.price_value and item.price_currency:
-                    from decimal import Decimal
-                    from providers.militaria321 import Militaria321Provider
-                    
-                    provider = Militaria321Provider()
-                    formatted_price = provider.format_price_de(Decimal(str(item.price_value)), item.price_currency)
-                    price_str = f" – {formatted_price}"
-                elif item.price_value:
-                    from decimal import Decimal
-                    from providers.militaria321 import Militaria321Provider
-                    
-                    provider = Militaria321Provider()
-                    formatted_price = provider.format_price_de(Decimal(str(item.price_value)), "EUR")
-                    price_str = f" – {formatted_price}"
-                
-                # Format location
-                location_str = ""
-                if item.location:
-                    location_str = f" – {item.location}"
-                
-                sample_text += f"{i+1}. [{item.title[:60]}...]({item.url}){price_str}{location_str}\n\n"
-            
-            # Add "more results" line
-            remaining = len(search_result.items) - shown_count
-            if search_result.total_count and search_result.total_count > shown_count:
-                remaining = search_result.total_count - shown_count
-                sample_text += f"*({remaining} weitere Treffer)*"
-            elif remaining > 0:
-                sample_text += f"*({remaining} weitere Treffer)*"
-            elif search_result.has_more:
-                sample_text += f"*(weitere Treffer verfügbar)*"
-            
-            # Mark sample items as seen
-            await mark_sample_items_as_seen(keyword.id, keyword.user_id, search_result.items[:shown_count])
-            
-        else:
-            # Zero results - no fabrication
-            sample_text = f"**Erste Treffer – militaria321.com**\n\n*(keine Treffer gefunden)*\n\nDer Bot überwacht weiterhin und benachrichtigt Sie bei neuen Einträgen."
+        # Apply title-only matching to get accurate count
+        matched_items = []
+        for item in search_result.items:
+            if provider.matches_keyword(item.title, keyword_text):
+                matched_items.append(item)
         
-        # Update keyword as first run completed
-        await keyword_service.update_keyword_first_run(keyword.id, True)
+        matched_total = len(matched_items)
+        
+        # Create response message based on count
+        if matched_total > 0:
+            setup_text = f"✅ **Suche eingerichtet: '{keyword_text}'**\n\n📊 **Aktuell gefunden: {matched_total} Treffer**\n\n🔔 **Ich benachrichtige Sie nur bei NEUEN Angeboten.**"
+        else:
+            setup_text = f"✅ **Suche eingerichtet: '{keyword_text}'**\n\n📊 **Aktuell keine Treffer gefunden**\n\n🔔 **Ich überwache weiter und benachrichtige Sie bei neuen Angeboten.**"
         
         # Add management info
-        sample_text += f"\n\n✅ **Suchbegriff aktiv**\n🔍 Begriff: **{keyword_text}**\n⏱️ Frequenz: Alle 60 Sekunden\n\nSie erhalten Benachrichtigungen bei neuen Treffern."
+        setup_text += f"\n\n⏱️ Frequenz: Alle 60 Sekunden\n🌐 Plattform: Militaria321.com"
         
-        # Create inline keyboard with management options
+        # Seed the seen_set with all current matches to prevent notifications
+        await keyword_service.seed_seen_set(keyword.id, matched_items)
+        
+        # Create inline keyboard
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text="📊 Statistiken", callback_data=f"stats_{keyword.id}"),
                 InlineKeyboardButton(text="⏸️ Pausieren", callback_data=f"pause_{keyword.id}")
             ],
             [
-                InlineKeyboardButton(text="🔄 Erneut testen", callback_data=f"retest_{keyword.id}"),
+                InlineKeyboardButton(text="🔄 Aktuellen Stand zeigen", callback_data=f"show_current_{keyword.id}"),
                 InlineKeyboardButton(text="🗑️ Löschen", callback_data=f"delete_{keyword.id}")
             ]
         ])
         
         # Edit the searching message with results
-        await searching_msg.edit_text(sample_text, parse_mode="Markdown", reply_markup=keyboard)
+        await searching_msg.edit_text(setup_text, parse_mode="Markdown", reply_markup=keyboard)
+        
+        logger.info(f"Setup search for '{keyword_text}': found {matched_total} current matches, seeded seen_set")
         
     except Exception as e:
-        logger.error(f"Error performing first-run sample: {e}")
-        await searching_msg.edit_text(f"❌ Fehler beim Suchen von Treffern für **'{keyword_text}'**.\n\nDer Suchbegriff wurde erstellt und überwacht weiterhin.", parse_mode="Markdown")
+        logger.error(f"Error performing setup search: {e}")
+        await searching_msg.edit_text(f"❌ Fehler beim Einrichten der Suche für **'{keyword_text}'**.\n\nBitte versuchen Sie es erneut.", parse_mode="Markdown")
 
 
 async def mark_sample_items_as_seen(keyword_id: str, user_id: str, items: list):
