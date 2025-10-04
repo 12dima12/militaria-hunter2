@@ -316,7 +316,7 @@ class Militaria321Provider(BaseProvider):
                 return [], total_count, has_more
             
             # Build unique listing containers from auction links
-            # Use the parent &lt;tr&gt; row as the container since it has all the details
+            # Use the parent <tr> row as the container since it has all the details
             seen_containers = set()
             listing_containers = []
             
