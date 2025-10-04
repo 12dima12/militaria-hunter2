@@ -354,18 +354,25 @@ class Militaria321Provider(BaseProvider):
             logger.info(f"Processing {len(listing_containers)} unique listing containers")
             
             # Parse individual listings with keyword matching
-            for container in listing_containers[:50]:  # Limit to 50 results per page
+            for i, container in enumerate(listing_containers[:50]):  # Limit to 50 results per page
                 try:
                     listing = self._parse_single_listing(container, original_query)
-                    if listing and listing.platform_id:
-                        # Apply strict keyword matching on title only
-                        if self.matches_keyword(listing.title, original_query):
-                            listings.append(listing)
-                            logger.debug(f"Matched: '{listing.title}' -> {listing.url}")
-                        else:
-                            logger.debug(f"Filtered out non-matching: '{listing.title}' for query '{original_query}'")
+                    if not listing:
+                        logger.debug(f"Container {i+1}: Failed to parse listing (returned None)")
+                        continue
+                    
+                    if not listing.platform_id:
+                        logger.debug(f"Container {i+1}: No platform_id extracted")
+                        continue
+                    
+                    # Apply strict keyword matching on title only
+                    if self.matches_keyword(listing.title, original_query):
+                        listings.append(listing)
+                        logger.info(f"✓ Matched #{i+1}: '{listing.title}' -> ID:{listing.platform_id}")
+                    else:
+                        logger.debug(f"✗ Container {i+1}: Title '{listing.title}' doesn't match query '{original_query}'")
                 except Exception as e:
-                    logger.debug(f"Error parsing single listing: {e}")
+                    logger.warning(f"Error parsing container {i+1}: {e}", exc_info=True)
                     continue
             
             logger.info(f"Successfully parsed {len(listings)} matching listings for '{original_query}'")
