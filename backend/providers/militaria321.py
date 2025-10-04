@@ -654,3 +654,8 @@ class Militaria321Provider(BaseProvider):
         """Build militaria321-specific search query"""
         # Simple query normalization
         return keyword.strip()
+    
+    def _get_next_page_url(self, current_url: str, soup: BeautifulSoup) -> Optional[str]:
+        """Get next page URL for pagination"""
+        from providers.pagination_utils import get_next_page_url_militaria321
+        return get_next_page_url_militaria321(current_url, soup)
