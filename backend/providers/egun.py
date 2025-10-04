@@ -223,8 +223,10 @@ class EgunProvider(BaseProvider):
                     'quick': '1'
                 }
                 
+                current_start = 0
                 if page > 1:
-                    params['start'] = (page - 1) * 50
+                    current_start = (page - 1) * 50
+                    params['start'] = current_start
                 
                 logger.info(f"GET search to egun.de page {page} with params: query='{query}'")
                 response = await client.get(self.search_url, params=params)
@@ -247,9 +249,21 @@ class EgunProvider(BaseProvider):
                         if indicator in page_text:
                             return [], 0, False
                 
-                item_links = soup.find_all('a', href=lambda x: x and 'item.php?id=' in str(x))
+                # Parse items
+                listings, total_count, _ = self._parse_search_page(soup, query, page)
                 
-                listings, total_count, has_more = self._parse_search_page(soup, query, page)
+                # Determine if there's a NEXT page by inspecting start offsets in anchors
+                next_starts = []
+                for a in soup.find_all('a', href=True):
+                    m = re.search(r'start=(\d+)', a['href'])
+                    if m:
+                        try:
+                            off = int(m.group(1))
+                            next_starts.append(off)
+                        except Exception:
+                            pass
+                # Find any start offset greater than current
+                has_more = any(off > current_start for off in next_starts)
                 
                 return listings, total_count, has_more
                 
