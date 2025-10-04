@@ -244,3 +244,5 @@ agent_communication:
     message: "Calling backend testing agent to test all Telegram bot commands: /start, /hilfe, /suche (with various keywords including diacritics), /liste, /testen, /loeschen (with confirmation), /pausieren, /fortsetzen. Need to verify: 1) Keyword search returns correct count, 2) Price formatting in German (e.g., '249,00 €'), 3) No timestamp false positives for 'uhr' keyword, 4) Delete confirmation flow works."
   - agent: "main"
     message: "Added egun.de as second provider. Implemented per-provider first-run sample blocks. Created provider registry for multi-provider support. Updated /suche command to show separate blocks per provider (egun.de, militaria321.com) with exactly top 3 items + suffix lines. Backend restarted successfully with both providers active."
+  - agent: "main"
+    message: "Phase 1 started: Implemented militaria321 posted_ts parsing from detail pages (Berlin tz→UTC), added posted_ts to models, strict gating in SearchService with 60m grace, and enrichment step to fetch posted_ts for not-yet-seen militaria321 items before gating. Ready for backend automated tests."
