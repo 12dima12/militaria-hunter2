@@ -111,7 +111,25 @@ class Militaria321Provider(BaseProvider):
                 response = await client.get(url)
                 response.raise_for_status()
                 
+                # Debug: Log response details
+                logger.info(f"Response status: {response.status_code}, Content length: {len(response.content)}")
+                logger.debug(f"Response headers: {dict(response.headers)}")
+                
                 soup = BeautifulSoup(response.content, 'html.parser')
+                
+                # Debug: Check for common error messages or empty result indicators
+                error_indicators = [
+                    "No results found",
+                    "0 Items found", 
+                    "keine Treffer",
+                    "Please check your entry"
+                ]
+                
+                page_text = soup.get_text().lower()
+                for indicator in error_indicators:
+                    if indicator.lower() in page_text:
+                        logger.info(f"Found error indicator on page: '{indicator}'")
+                
                 listings, total_count, has_more = self._parse_search_page(soup, query, page)
                 
                 logger.info(f"Page {page}: Found {len(listings)} listings")
