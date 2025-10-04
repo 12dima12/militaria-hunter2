@@ -104,7 +104,22 @@ class DatabaseManager:
         
         keywords_cursor = self.db.keywords.find(query).sort("created_at", -1)
         keywords = await keywords_cursor.to_list(length=None)
-        return [Keyword(**keyword) for keyword in keywords]
+        
+        # Migrate keywords without normalized_keyword field
+        migrated_keywords = []
+        for keyword_doc in keywords:
+            if "normalized_keyword" not in keyword_doc or keyword_doc["normalized_keyword"] is None:
+                # Add normalized_keyword during migration
+                normalized = keyword_doc["keyword"].strip().casefold()
+                await self.db.keywords.update_one(
+                    {"_id": keyword_doc["_id"]},
+                    {"$set": {"normalized_keyword": normalized}}
+                )
+                keyword_doc["normalized_keyword"] = normalized
+            
+            migrated_keywords.append(Keyword(**keyword_doc))
+        
+        return migrated_keywords
     
     async def get_user_keyword_by_normalized(self, user_id: str, normalized_keyword: str) -> Optional[Keyword]:
         """Get specific keyword by user and normalized text"""
