@@ -30,16 +30,48 @@ class Militaria321Provider(BaseProvider):
         return unicodedata.normalize("NFKC", text).casefold().strip()
     
     def matches_keyword(self, title: str, keyword: str) -> bool:
-        """Check if title matches keyword using proper tokenization"""
+        """Check if title matches keyword using proper tokenization with context filtering"""
         title_normalized = self._normalize_text(title)
         tokens = [t for t in self._normalize_text(keyword).split() if t]
         
         if not tokens:
             return False
         
-        # All tokens must appear as whole words in the title
-        # Use Unicode word boundaries to handle international text properly
-        return all(re.search(rf"(?<!\w){re.escape(token)}(?!\w)", title_normalized, re.UNICODE) for token in tokens)
+        # Check each token individually with context awareness
+        for token in tokens:
+            # Find all occurrences of the token
+            pattern = rf"(?<!\w){re.escape(token)}(?!\w)"
+            matches = list(re.finditer(pattern, title_normalized, re.UNICODE))
+            
+            if not matches:
+                return False  # Token not found as whole word
+            
+            # For certain tokens, apply context filtering to avoid false positives
+            if token == 'uhr':
+                # Check if any match is NOT in a timestamp context
+                valid_match_found = False
+                for match in matches:
+                    start, end = match.span()
+                    
+                    # Get context around the match (20 chars before and after)
+                    context = title_normalized[max(0, start-20):end+20]
+                    
+                    # Skip if it looks like a timestamp (e.g., "07:39 uhr", "12:30 uhr")
+                    if re.search(r'\d{1,2}:\d{2}\s*uhr', context):
+                        continue
+                    
+                    # Skip if it follows common time expressions
+                    if re.search(r'(time|zeit|ende|end|bis|um)\s*:?\s*\d.*uhr', context):
+                        continue
+                    
+                    # If we get here, it's likely a valid match (not a timestamp)
+                    valid_match_found = True
+                    break
+                
+                if not valid_match_found:
+                    return False
+        
+        return True
     
     def parse_price(self, raw_price: str) -> Tuple[Optional[Decimal], str]:
         """Parse price string and return (decimal_value, currency_code)"""
