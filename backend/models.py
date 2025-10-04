@@ -48,7 +48,7 @@ class Keyword(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str
     keyword: str  # Original keyword as entered by user
-    normalized_keyword: str  # Case-insensitive normalized version using casefold()
+    normalized_keyword: Optional[str] = None  # Case-insensitive normalized version using casefold()
     is_active: bool = True
     is_muted: bool = False
     muted_until: Optional[datetime] = None
