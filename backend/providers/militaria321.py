@@ -384,12 +384,16 @@ class Militaria321Provider(BaseProvider):
             
             # listing_elements is now set above
             
-            # Parse individual listings
+            # Parse individual listings with keyword matching
             for element in listing_elements[:50]:  # Limit to 50 results per page
                 try:
                     listing = self._parse_single_listing(element, original_query)
-                    if listing and listing.platform_id:  # Ensure we have a valid ID
-                        listings.append(listing)
+                    if listing and listing.platform_id:
+                        # Apply strict keyword matching on title only
+                        if self.matches_keyword(listing.title, original_query):
+                            listings.append(listing)
+                        else:
+                            logger.debug(f"Filtered out non-matching item: '{listing.title}' for query '{original_query}'")
                 except Exception as e:
                     logger.debug(f"Error parsing single listing: {e}")
                     continue
