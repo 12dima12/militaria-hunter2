@@ -9,8 +9,21 @@ from models import Listing, StoredListing, KeywordHit, Notification, Keyword
 from database import DatabaseManager
 from providers import get_all_providers
 from services.notification_service import NotificationService
+from datetime import timezone
 
 logger = logging.getLogger(__name__)
+
+
+def _to_utc_iso(dt_obj):
+    """Return tz-aware UTC ISO string or None (tolerant for naive)."""
+    if not dt_obj:
+        return None
+    try:
+        if dt_obj.tzinfo is None:
+            dt_obj = dt_obj.replace(tzinfo=timezone.utc)
+        return dt_obj.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    except Exception:
+        return None
 
 
 def is_new_listing(item: Listing, since_ts: datetime, now: datetime, grace_minutes: int = 60) -> bool:
