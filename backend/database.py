@@ -414,6 +414,8 @@ class DatabaseManager:
                 raise
 
         
+        # Note: dead code block above retained from earlier template; not used
+
         try:
             result = await self.db.keywords.update_one(
                 {"id": keyword_id},
