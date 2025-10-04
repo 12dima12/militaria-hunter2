@@ -253,7 +253,7 @@ class EgunProvider(BaseProvider):
                             return [], 0, False
                 
                 # Parse items
-                listings, total_count, _ = self._parse_search_page(soup, query, page)
+                listings, total_count, _ = self._parse_search_page(soup, query, page, apply_filter=False)
                 
                 # Determine if there's a NEXT page by inspecting start offsets in anchors
                 next_starts = []
