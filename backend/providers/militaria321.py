@@ -43,7 +43,7 @@ class Militaria321Provider(BaseProvider):
         # Check each token individually with context awareness
         for token in tokens:
             # Find all occurrences of the token
-            pattern = rf"(?&lt;!\w){re.escape(token)}(?!\w)"
+            pattern = rf"(?<!\w){re.escape(token)}(?!\w)"
             matches = list(re.finditer(pattern, title_normalized, re.UNICODE))
             
             if not matches:
