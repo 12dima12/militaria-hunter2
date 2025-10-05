@@ -31,6 +31,7 @@ class SearchResult:
     total_count: Optional[int] = None  # total available results, if known
     has_more: bool = False
     pages_scanned: Optional[int] = None
+    last_page_index: Optional[int] = None  # Last page index processed
 
 
 # MongoDB Pydantic Models
