@@ -34,9 +34,10 @@ class SearchService:
         }
     
     async def search_keyword(self, keyword: Keyword, dry_run: bool = False) -> List[Listing]:
-        """Search for new items for a keyword subscription
+        """Search for new items with deep pagination strategy
         
-        Returns only items that pass strict newness gating with deduplication
+        Supports both full-scan and rotating deep-scan modes to ensure no new items
+        are missed due to militaria321's end-date sorting.
         """
         # Check if keyword needs migration (empty or non-ID-based seen_listing_keys)
         needs_migration = False
@@ -64,66 +65,138 @@ class SearchService:
         all_new_items = []
         seen_this_run = set()  # In-run deduplication
         
+        # Determine polling mode: use keyword-level settings or global defaults
+        poll_mode = getattr(keyword, 'poll_mode', POLL_MODE)
+        poll_window = getattr(keyword, 'poll_window', POLL_WINDOW)
+        total_pages_estimate = getattr(keyword, 'total_pages_estimate', None)
+        poll_cursor_page = getattr(keyword, 'poll_cursor_page', 1)
+        
         # Get militaria321 provider
         provider = self.providers["militaria321.com"]
         
         try:
-            # Search with polling mode (first page only)
-            result = await provider.search(
-                keyword=keyword.original_keyword,
-                since_ts=keyword.since_ts,
-                crawl_all=False,  # Polling mode - first few pages only
-                max_pages_override=5  # Check first 5 pages to catch new items
+            # Determine which pages to scan based on polling mode
+            pages_to_scan = self._determine_pages_to_scan(
+                poll_mode, poll_cursor_page, poll_window, 
+                total_pages_estimate, PRIMARY_PAGES, MAX_PAGES_PER_CYCLE
             )
             
-            # Build canonical listing keys and deduplicate in-run
-            canonical_items = []
-            for item in result.items:
-                listing_key = self._build_canonical_listing_key(item)
-                
-                # Skip duplicates within this run
-                if listing_key in seen_this_run:
-                    logger.debug(f"Skipping in-run duplicate: {listing_key}")
-                    continue
-                
-                seen_this_run.add(listing_key)
-                
-                # Update item with canonical key for consistency
-                item.platform_id = listing_key.split(':', 1)[1]  # Extract ID part
-                canonical_items.append(item)
+            logger.info({
+                "event": "poll_start",
+                "keyword": keyword.normalized_keyword,
+                "mode": poll_mode,
+                "pages_to_scan": pages_to_scan,
+                "cursor_start": poll_cursor_page,
+                "window_size": poll_window
+            })
             
-            # Enrich militaria321 items with posted_ts/price if not in seen set
+            # Collect all items from specified pages
+            all_items = []
+            pages_scanned = 0
+            unseen_candidates = 0
+            pushed_count = 0
+            absorbed_count = 0
+            consecutive_empty_pages = 0
+            
+            for page_index in pages_to_scan:
+                try:
+                    # Search single page
+                    result = await provider.search(
+                        keyword=keyword.original_keyword,
+                        since_ts=keyword.since_ts,
+                        mode="poll",
+                        poll_pages=1,
+                        page_start=page_index
+                    )
+                    
+                    pages_scanned += 1
+                    
+                    if not result.items:
+                        consecutive_empty_pages += 1
+                        logger.info({
+                            "event": "m321_page",
+                            "q": keyword.normalized_keyword,
+                            "page_index": page_index,
+                            "items_on_page": 0,
+                            "consecutive_empty": consecutive_empty_pages
+                        })
+                        
+                        # Early stop after 5 consecutive empty pages (if rotating window completed)
+                        if consecutive_empty_pages >= 5 and poll_mode == "rotate":
+                            logger.info(f"Early stop: 5 consecutive empty pages starting at page {page_index - 4}")
+                            break
+                        continue
+                    else:
+                        consecutive_empty_pages = 0
+                    
+                    # Process items from this page
+                    page_unseen = 0
+                    duplicates_on_page = 0
+                    
+                    for item in result.items:
+                        listing_key = self._build_canonical_listing_key(item)
+                        
+                        # Skip duplicates within this run
+                        if listing_key in seen_this_run:
+                            duplicates_on_page += 1
+                            continue
+                        
+                        seen_this_run.add(listing_key)
+                        
+                        # Update item with canonical key for consistency
+                        item.platform_id = listing_key.split(':', 1)[1]  # Extract ID part
+                        all_items.append(item)
+                        
+                        # Track unseen candidates (not in baseline)
+                        if listing_key not in keyword.seen_listing_keys:
+                            page_unseen += 1
+                    
+                    unseen_candidates += page_unseen
+                    
+                    logger.info({
+                        "event": "m321_page",
+                        "q": keyword.normalized_keyword,
+                        "page_index": page_index,
+                        "items_on_page": len(result.items),
+                        "duplicates_on_page": duplicates_on_page,
+                        "unseen_on_page": page_unseen,
+                        "unique_total": len(all_items)
+                    })
+                    
+                    # Add throttling between pages (200-600ms jitter as specified)
+                    await asyncio.sleep(0.2 + (0.4 * (page_index % 3) / 3))
+                    
+                except Exception as e:
+                    logger.error(f"Error fetching page {page_index}: {e}")
+                    continue
+            
+            # Enrich unseen items with posted_ts/price
             unseen_items = []
-            for item in canonical_items:
+            for item in all_items:
                 listing_key = self._build_canonical_listing_key(item)
                 if listing_key not in keyword.seen_listing_keys:
                     unseen_items.append(item)
             
             if unseen_items:
-                # Fetch posted_ts and complete missing prices
-                await provider.fetch_posted_ts_batch(unseen_items, concurrency=3)
+                # Fetch posted_ts and complete missing prices with controlled concurrency
+                await provider.fetch_posted_ts_batch(unseen_items, concurrency=DETAIL_CONCURRENCY)
             
-            # Apply strict newness gating
-            for item in canonical_items:
+            # Apply strict newness gating to all collected items
+            new_seen_keys = []
+            for item in all_items:
                 listing_key = self._build_canonical_listing_key(item)
                 
                 # Check if already seen
                 if listing_key in keyword.seen_listing_keys:
-                    logger.info({
-                        "event": "decision",
-                        "platform": item.platform,
-                        "keyword_norm": keyword.normalized_keyword,
-                        "listing_key": listing_key,
-                        "posted_ts_utc": item.posted_ts.isoformat() if item.posted_ts else None,
-                        "since_ts_utc": keyword.since_ts.isoformat(),
-                        "decision": "already_seen",
-                        "reason": "listing_key_in_seen_set"
-                    })
                     continue
                 
-                # Apply newness gating
+                # Add to seen set regardless of newness (idempotent baseline expansion)
+                new_seen_keys.append(listing_key)
+                
+                # Apply newness gating for push notifications
                 if self._is_new_listing(item, keyword):
                     all_new_items.append(item)
+                    pushed_count += 1
                     
                     # Log decision with detailed reason
                     if item.posted_ts is not None:
@@ -142,6 +215,7 @@ class SearchService:
                         "reason": reason
                     })
                 else:
+                    absorbed_count += 1
                     # Item fails newness gate but should be added to seen set
                     reason = self._get_filter_reason(item, keyword)
                     logger.info({
@@ -154,9 +228,41 @@ class SearchService:
                         "decision": "absorbed",
                         "reason": reason
                     })
-        
+            
+            # Update seen_listing_keys in database
+            if new_seen_keys:
+                await self.db.db.keywords.update_one(
+                    {"id": keyword.id},
+                    {"$addToSet": {"seen_listing_keys": {"$each": new_seen_keys}}}
+                )
+            
+            # Update poll cursor for rotating mode
+            if poll_mode == "rotate" and pages_scanned > 0:
+                new_cursor = (poll_cursor_page + poll_window) 
+                if total_pages_estimate and new_cursor > total_pages_estimate:
+                    new_cursor = 1  # Wrap around
+                
+                await self.db.db.keywords.update_one(
+                    {"id": keyword.id},
+                    {"$set": {"poll_cursor_page": new_cursor}}
+                )
+            
+            # Log poll summary
+            logger.info({
+                "event": "poll_summary",
+                "keyword": keyword.normalized_keyword,
+                "mode": poll_mode,
+                "pages_scanned": pages_scanned,
+                "primary_pages": PRIMARY_PAGES,
+                "cursor_start": poll_cursor_page,
+                "window_size": poll_window,
+                "unseen_candidates": unseen_candidates,
+                "pushed": pushed_count,
+                "absorbed": absorbed_count
+            })
+            
         except Exception as e:
-            logger.error(f"Error searching {provider.platform_name}: {e}")
+            logger.error(f"Error in deep polling for {provider.platform_name}: {e}")
             
             # Update telemetry on error
             now = datetime.utcnow()
