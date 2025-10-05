@@ -7,6 +7,7 @@ from typing import List, Optional
 from database import DatabaseManager
 from models import Keyword, Listing, StoredListing
 from providers.militaria321 import Militaria321Provider
+from utils.text import br_join, b, i, a, code, fmt_ts_de, fmt_price_de, safe_truncate
 
 logger = logging.getLogger(__name__)
 
