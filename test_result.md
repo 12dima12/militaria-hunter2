@@ -376,6 +376,7 @@ metadata:
 
 test_plan:
   current_focus:
+    - "Fix duplicate 'keyword exists' bug after /clear or /delete"
     - "CRITICAL: Complete militaria321 provider implementation"
     - "End-to-end bot testing with Telegram"
   stuck_tasks:
