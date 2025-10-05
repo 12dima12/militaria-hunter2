@@ -10,6 +10,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from database import DatabaseManager
 from models import Keyword, Listing, Notification
 from providers.militaria321 import Militaria321Provider
+from utils.text import br_join, b, i, a, code, fmt_ts_de, fmt_price_de, safe_truncate
 
 logger = logging.getLogger(__name__)
 
