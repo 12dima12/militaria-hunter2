@@ -207,14 +207,21 @@ class PollingScheduler:
         return job.next_run_time if job else None
     
     def stop_keyword_job(self, job_id: str) -> bool:
-        """Stop and remove a keyword job"""
-        job = self.scheduler.get_job(job_id)
-        if not job:
-            return False
-        
+        """Stop/remove a specific keyword polling job.
+        Returns True if a job was removed, False if no such job existed.
+        Must be tolerant (idempotent).
+        """
         try:
+            job = self.scheduler.get_job(job_id)
+            if not job:
+                return False
             self.scheduler.remove_job(job_id)
-            self.active_jobs.discard(job_id.replace("keyword_", ""))  # Remove from active set
+            # Remove from active_jobs set - handle both formats
+            if job_id.startswith("keyword_"):
+                keyword_id = job_id.replace("keyword_", "")
+            else:
+                keyword_id = job_id.replace("kw:", "")
+            self.active_jobs.discard(keyword_id)
             return True
         except Exception as e:
             logger.warning(f"Error stopping job {job_id}: {e}")
