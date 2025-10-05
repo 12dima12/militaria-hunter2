@@ -267,13 +267,7 @@ async def cmd_delete(message: Message):
     
     try:
         # Soft delete keyword (set is_active = False)
-        await db_manager.db.keywords.update_one(
-            {"id": keyword.id},
-            {"$set": {
-                "is_active": False,
-                "updated_at": datetime.utcnow()
-            }}
-        )
+        await db_manager.soft_delete_keyword(keyword.id)
         
         # Remove from scheduler
         if polling_scheduler:
