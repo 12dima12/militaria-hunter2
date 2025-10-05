@@ -116,8 +116,18 @@ class DatabaseManager:
         )
     
     async def delete_keyword(self, keyword_id: str):
-        """Delete keyword"""
+        """Delete keyword (hard delete)"""
         await self.db.keywords.delete_one({"id": keyword_id})
+    
+    async def soft_delete_keyword(self, keyword_id: str):
+        """Soft delete keyword (set is_active = False)"""
+        await self.db.keywords.update_one(
+            {"id": keyword_id},
+            {"$set": {
+                "is_active": False,
+                "updated_at": datetime.utcnow()
+            }}
+        )
     
     # Listing operations
     async def upsert_listing(self, listing: StoredListing) -> StoredListing:
