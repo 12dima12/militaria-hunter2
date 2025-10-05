@@ -214,9 +214,13 @@ async def cmd_search(message: Message):
         
         await db_manager.update_keyword_seen_keys(keyword.id, seen_keys)
         
+        # Reload keyword from database to get updated seen_listing_keys
+        updated_keyword_doc = await db_manager.db.keywords.find_one({"id": keyword.id})
+        updated_keyword = Keyword(**updated_keyword_doc)
+        
         # Start polling for this keyword
         if polling_scheduler:
-            polling_scheduler.add_keyword_job(keyword, user.telegram_id)
+            polling_scheduler.add_keyword_job(updated_keyword, user.telegram_id)
         
         # Format main response message
         response_lines = [
