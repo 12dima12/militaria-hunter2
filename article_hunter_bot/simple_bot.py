@@ -489,7 +489,8 @@ async def clear_my_keywords_confirm(callback: CallbackQuery):
     # Stop jobs (idempotent)
     stopped = 0
     for kw_id in kw_ids:
-        if stop_keyword_job(f"kw:{kw_id}"):
+        # Use the actual job ID format used by the scheduler
+        if stop_keyword_job(f"keyword_{kw_id}"):
             stopped += 1
 
     # Delete artifacts first, then keywords (order prevents dangling refs)
