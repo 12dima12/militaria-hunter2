@@ -517,8 +517,8 @@ async def kw_delete_callback(callback: CallbackQuery):
             await callback.answer("❌ Suchbegriff nicht gefunden.", show_alert=True)
             return
         
-        # Delete keyword and remove from scheduler
-        await db_manager.delete_keyword(keyword.id)
+        # Soft delete keyword and remove from scheduler
+        await db_manager.soft_delete_keyword(keyword.id)
         
         if polling_scheduler:
             polling_scheduler.remove_keyword_job(keyword.id)
