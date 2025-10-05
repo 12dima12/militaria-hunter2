@@ -52,6 +52,16 @@ class Keyword(BaseModel):
     is_active: bool = True
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    # Telemetry fields for health monitoring
+    baseline_status: str = "pending"  # {"pending","running","partial","error","complete"}
+    baseline_errors: dict = Field(default_factory=dict)  # provider → message
+    last_checked: Optional[datetime] = None  # UTC
+    last_success_ts: Optional[datetime] = None  # UTC
+    last_error_ts: Optional[datetime] = None  # UTC
+    last_error_message: Optional[str] = None
+    consecutive_errors: int = 0  # reset to 0 on success; +1 on failure
+    platforms: List[str] = Field(default_factory=lambda: ["militaria321.com"])  # ["militaria321.com"]
 
 
 class StoredListing(BaseModel):
