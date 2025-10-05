@@ -53,7 +53,9 @@ class PollingScheduler:
         
     async def start(self):
         """Start the scheduler and set up existing keywords"""
+        global scheduler
         self.scheduler.start()
+        scheduler = self.scheduler  # Set global reference
         
         # Set up jobs for existing active keywords
         await self._setup_existing_keywords()
