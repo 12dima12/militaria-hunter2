@@ -66,6 +66,13 @@ class Keyword(BaseModel):
     last_error_message: Optional[str] = None
     consecutive_errors: int = 0  # reset to 0 on success; +1 on failure
     platforms: List[str] = Field(default_factory=lambda: ["militaria321.com"])  # ["militaria321.com"]
+    
+    # Poll-related fields for deep pagination
+    poll_cursor_page: int = 1  # Current page position in rotating deep-scan
+    total_pages_estimate: Optional[int] = None  # Estimated total pages for this keyword
+    poll_mode: str = "rotate"  # "full" or "rotate" 
+    poll_window: int = 5  # Number of pages in rotating window
+    last_deep_scan_at: Optional[datetime] = None  # Last time full deep scan was done
 
 
 class StoredListing(BaseModel):
