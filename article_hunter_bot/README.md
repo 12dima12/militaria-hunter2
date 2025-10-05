@@ -1,13 +1,17 @@
 # Telegram Article Hunter Bot
 
-A production-ready Telegram bot that monitors militaria321.com for NEW listings matching user keywords and sends immediate push notifications.
+A sophisticated Telegram bot that monitors militaria321.com for new listings matching user-defined keywords, delivering immediate push notifications with deep pagination support to ensure no new items are missed.
 
 ## Features
 
-- **German Commands**: `/search`, `/check`, `/delete`
+- **Deep Pagination System**: Monitors all pages, not just the first few, solving militaria321.com's end-date sorting issue
+- **Intelligent Polling**: Two modes (full-scan and rotating deep-scan) for efficient coverage
+- **German Commands**: `/search`, `/list`, `/check`, `/delete`, `/hilfe`
 - **Smart Monitoring**: Only notifies for truly NEW items (strict timestamp gating)
-- **Fixed Polling**: 60-second intervals for all keywords
+- **Stable ID Tracking**: Uses canonical numeric IDs to prevent duplicate notifications
+- **Health Monitoring**: Comprehensive keyword health status and diagnostics
 - **German Timezone**: All timestamps displayed in Europe/Berlin
+- **Site-Friendly**: Controlled throttling and concurrency to avoid rate limits
 - **Extensible Design**: Easy to add new platforms
 
 ## Quick Start
