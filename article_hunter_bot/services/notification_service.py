@@ -76,6 +76,8 @@ class NotificationService:
                 disable_web_page_preview=False  # Show preview for image_url
             )
             
+            # Log message with preview
+            logger.info({"event": "send_text", "len": len(message_text), "preview": message_text[:120].replace("\n", "⏎")})
             logger.info(f"Notification sent for {listing_key} to user {user_telegram_id}")
             return True
             
