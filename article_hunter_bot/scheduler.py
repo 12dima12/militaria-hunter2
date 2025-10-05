@@ -13,6 +13,28 @@ from services.notification_service import NotificationService
 
 logger = logging.getLogger(__name__)
 
+# Global scheduler instance (will be set by main)
+scheduler: Optional[AsyncIOScheduler] = None
+
+def stop_keyword_job(job_id: str) -> bool:
+    """
+    Stop/remove a specific keyword polling job.
+    Returns True if a job was removed, False if no such job existed.
+    Must be tolerant (idempotent).
+    """
+    global scheduler
+    if not scheduler:
+        return False
+    
+    try:
+        job = scheduler.get_job(job_id)
+        if not job:
+            return False
+        scheduler.remove_job(job_id)
+        return True
+    except Exception:
+        return False
+
 
 class PollingScheduler:
     """APScheduler for fixed 60-second keyword polling"""
