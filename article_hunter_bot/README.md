@@ -67,8 +67,55 @@ A sophisticated Telegram bot that monitors militaria321.com for new listings mat
 
 4. **Run the bot:**
    ```bash
-   python main.py
+   python simple_bot.py
    ```
+
+## Deep Pagination System
+
+The bot solves militaria321.com's critical end-date sorting issue where new items can appear on deeper pages (6+) and get missed by traditional polling:
+
+### Problem Solved
+- **Issue**: Militaria321 sorts by auction end date, causing new items to appear on later pages
+- **Previous**: Only checking first 5 pages missed new items deeper in results
+- **Solution**: Deep pagination ensures complete coverage
+
+### Polling Modes
+
+**Rotate Mode (Default)**: Efficient rotating window strategy
+```
+Example: 50 total pages, window=5, cursor=8
+Cycle 1: Scan pages [1, 8, 9, 10, 11, 12]
+Cycle 2: Scan pages [1, 13, 14, 15, 16, 17]  
+Cycle 3: Scan pages [1, 18, 19, 20, 21, 22]
+Result: Complete coverage over time, site-friendly
+```
+
+**Full Mode**: Scan all pages every cycle
+```
+Best for: Keywords with <40 pages
+Trade-off: Immediate detection but higher resource usage
+```
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `POLL_MODE` | `rotate` | Strategy: `full` or `rotate` |
+| `PRIMARY_PAGES` | `1` | Always scan these front pages |
+| `POLL_WINDOW` | `5` | Pages in rotating window |
+| `MAX_PAGES_PER_CYCLE` | `40` | Hard limit per cycle |
+
+### Monitoring
+
+The `/list` command shows enhanced telemetry:
+```
+📝 Wehrmacht Helm
+Status: ✅ Läuft — Letzte Prüfung erfolgreich
+Letzte Prüfung: 05.10.2025 16:19 Uhr — Letzter Erfolg: 05.10.2025 16:19 Uhr
+Baseline: complete
+Plattformen: militaria321.com
+Poll: Modus: rotate — Seiten: ~45 — Fenster: 12-16
+```
 
 ## Commands
 
