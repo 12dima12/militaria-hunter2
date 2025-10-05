@@ -314,18 +314,33 @@ class Militaria321Provider(BaseProvider):
             pass
         return None
     
+    def _has_next_page(self, soup: BeautifulSoup, current_startat: int) -> bool:
+        """Detect if there's a next page by scanning for startat values > current"""
+        try:
+            for a in soup.find_all("a", href=True):
+                href = a.get("href", "")
+                match = re.search(r"startat=(\d+)", href)
+                if match and int(match.group(1)) > current_startat:
+                    return True
+            return False
+        except Exception as e:
+            logger.warning(f"Error detecting next page: {e}")
+            return False
+    
     def _extract_total_count(self, soup: BeautifulSoup, items_on_page: int) -> Optional[int]:
         """Extract total result count from search page"""
         try:
             # Look for result count indicators
             text = soup.get_text()
             
-            # Multiple patterns for German result count
+            # Enhanced patterns for German result count
             patterns = [
-                r'([0-9]+)\s+(?:Treffer|Ergebnis|gefunden)',  # "X Treffer gefunden"  
-                r'(?:Treffer|Ergebnis|gefunden).*?([0-9]+)',   # "Treffer: X"
-                r'([0-9]+)\s+(?:von|aus|total)',              # "X von Y"
-                r'([0-9]+)\s+(?:Auktionen|Angebote)',         # "X Auktionen"
+                r'(\d+)\s+Treffer',           # "X Treffer"
+                r'(\d+)\s+Auktionen',         # "X Auktionen"  
+                r'Gesamt\s*:\s*(\d+)',        # "Gesamt: X"
+                r'Ergebnisse\s*:\s*(\d+)',    # "Ergebnisse: X"
+                r'(\d+)\s+(?:Ergebnis|gefunden)',  # "X Ergebnis gefunden"
+                r'(\d+)\s+(?:von|aus|total)',      # "X von Y"
             ]
             
             for pattern in patterns:
@@ -333,11 +348,10 @@ class Militaria321Provider(BaseProvider):
                 if match:
                     count = int(match.group(1))
                     logger.debug(f"Extracted total count: {count} using pattern: {pattern}")
-                    # Return None for very large counts to force page-by-page crawling
-                    return None if count > 1000 else count
+                    return count
             
-            # No count found - use None to force complete crawling
-            logger.debug("No total count found, will crawl until empty page")
+            # No count found - return None to let pagination handle it
+            logger.debug("No total count found, will rely on next-page detection")
             return None
             
         except Exception as e:
