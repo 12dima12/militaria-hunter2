@@ -605,7 +605,14 @@ async def main():
     
     # Admin clear handlers (public access)
     router.message.register(cmd_admin_clear, Command("admin"))
-    router.message.register(cmd_clear, Command("clear"))  # Alias for convenience
+    router.message.register(cmd_clear, Command("clear"))  # New behavior: user-specific or global
+    
+    # Clear callback handlers
+    router.callback_query.register(clear_my_keywords_confirm, F.data == "clear_my_keywords_confirm")
+    router.callback_query.register(clear_data_confirm, F.data == "clear_data_confirm")
+    router.callback_query.register(clear_cancel, F.data == "clear_cancel")
+    
+    # Legacy admin clear callbacks (for cmd_admin_clear)
     router.callback_query.register(admin_clear_confirm, F.data == "admin_clear_confirm")
     router.callback_query.register(admin_clear_cancel, F.data == "admin_clear_cancel")
     
