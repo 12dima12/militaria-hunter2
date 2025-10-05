@@ -816,7 +816,7 @@ async def cmd_hilfe(message: Message):
         "Zeigt alle aktiven Überwachungen mit Gesundheitsstatus, Seitenzahlen und Deep-Pagination-Telemetrie an.",
         "",
         f"🔄 {code('/check <suchbegriff>')}",
-        "Manuelle Vollsuche durchführen. Crawlt alle Seiten neu und zeigt Statistiken an, ohne Benachrichtigungen zu senden.",
+        "Manuelle Verifikation und Backfill durchführen. Erkennt verpasste Artikel (z.B. wenn Bot offline war) und benachrichtigt nachträglich über neue Funde.",
         f"Beispiel: {code('/check Wehrmacht Helm')}",
         "",
         f"🗑️ {code('/delete <suchbegriff>')}",
