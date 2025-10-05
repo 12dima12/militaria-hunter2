@@ -196,3 +196,12 @@ class PollingScheduler:
             clean_id = item.platform_id
         
         return f"{platform}:{clean_id}"
+    
+    def scheduler_has_job(self, job_id: str) -> bool:
+        """Check if scheduler has a job with given ID"""
+        return self.scheduler.get_job(job_id) is not None
+    
+    def get_job_next_run(self, job_id: str) -> Optional[datetime]:
+        """Get next run time for job (UTC)"""
+        job = self.scheduler.get_job(job_id)
+        return job.next_run_time if job else None
