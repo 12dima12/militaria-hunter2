@@ -333,10 +333,11 @@ class SearchService:
         
         return "\n".join(diagnosis_lines)
     
-    async def full_baseline_seed(self, keyword_text: str, keyword_id: str) -> List[Listing]:
+    async def full_baseline_seed(self, keyword_text: str, keyword_id: str) -> tuple[List[Listing], dict]:
         """Perform full baseline crawl with proper state machine
         
         Implements baseline_status transitions: pending → running → complete/partial/error
+        Returns: (all_items, last_item_meta)
         """
         now_utc = datetime.utcnow()
         
@@ -355,6 +356,7 @@ class SearchService:
         all_items = []
         provider_results = {}
         provider_errors = {}
+        last_item_meta = None
         
         # Process each provider
         for platform_name, provider in self.providers.items():
@@ -373,6 +375,13 @@ class SearchService:
                 }
                 
                 all_items.extend(result.items)
+                
+                # Track last item metadata for verification block
+                if result.items and result.pages_scanned and result.pages_scanned > 0:
+                    last_item_meta = {
+                        "page_index": result.pages_scanned,
+                        "listing": result.items[-1]  # Last item from last page
+                    }
                 
                 logger.info(f"Baseline crawl completed for {platform_name}: "
                           f"{len(result.items)} items, {result.pages_scanned} pages")
