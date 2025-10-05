@@ -440,11 +440,12 @@ async def cmd_clear(message: Message):
             InlineKeyboardButton(text="✅ Ja, alle Daten löschen", callback_data="clear_data_confirm"),
             InlineKeyboardButton(text="❌ Abbrechen", callback_data="clear_cancel"),
         ]])
-        await message.answer(
-            "⚠️ Achtung: Dies löscht *alle gespeicherten Angebote und Benachrichtigungen* für alle Nutzer. "
-            "Nutzer & Keywords bleiben erhalten. Fortfahren?",
-            reply_markup=kb, parse_mode="Markdown"
-        )
+        confirm_text = br_join([
+            "⚠️ Achtung: Dies löscht alle gespeicherten Angebote und Benachrichtigungen für alle Nutzer.",
+            "Nutzer & Keywords bleiben erhalten. Fortfahren?"
+        ])
+        await message.answer(confirm_text, reply_markup=kb, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(confirm_text), "preview": confirm_text[:120].replace("\n", "⏎")})
         return
 
     # Default: delete MY keywords
@@ -452,10 +453,9 @@ async def cmd_clear(message: Message):
         InlineKeyboardButton(text="✅ Ja, alle meine Suchbegriffe löschen", callback_data="clear_my_keywords_confirm"),
         InlineKeyboardButton(text="❌ Abbrechen", callback_data="clear_cancel"),
     ]])
-    await message.answer(
-        "Möchten Sie wirklich *alle Ihre Suchbegriffe* löschen? Dies stoppt auch die Hintergrundüberwachung.",
-        reply_markup=kb, parse_mode="Markdown"
-    )
+    confirm_text = "Möchten Sie wirklich alle Ihre Suchbegriffe löschen? Dies stoppt auch die Hintergrundüberwachung."
+    await message.answer(confirm_text, reply_markup=kb, parse_mode="HTML")
+    logger.info({"event": "send_text", "len": len(confirm_text), "preview": confirm_text[:120].replace("\n", "⏎")})
 
 async def cmd_list(message: Message):
     """Handle /list command - show health/status of all active keywords"""
