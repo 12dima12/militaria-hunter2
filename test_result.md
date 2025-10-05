@@ -345,15 +345,18 @@ backend:
 
   - task: "Fix duplicate 'keyword exists' bug after /clear or /delete"
     implemented: true
-    working: "NA"
+    working: true
     file: "/app/article_hunter_bot/simple_bot.py, /app/article_hunter_bot/database.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: "NA"
         agent: "main"
         comment: "FIXED the root cause: (1) Added instrumentation logging for duplicate checks with is_active status, (2) Updated get_keyword_by_normalized() to support active_only filtering, (3) Implemented keyword reactivation logic for inactive keywords, (4) Modified /delete to use soft deletion (is_active=False) instead of hard delete, (5) /clear continues using hard deletion for complete cleanup, (6) Added German UX for reactivation: '✅ Suchbegriff reaktiviert: <keyword> – Baseline wird neu aufgebaut.', (7) Added comprehensive logging for debugging. Ready for testing complete flow: create → soft delete → reactivate → hard delete via /clear."
+      - working: true
+        agent: "testing"
+        comment: "✓ COMPREHENSIVE TESTING COMPLETE: All duplicate keyword bug fixes verified working correctly. (1) Database Helper: get_keyword_by_normalized() active_only parameter working perfectly - finds active keywords with active_only=True, returns None for inactive keywords with active_only=True, finds inactive keywords with active_only=False. (2) Soft vs Hard Delete: Soft delete properly sets is_active=False while preserving record, hard delete completely removes record. (3) Keyword Reactivation: Inactive keywords properly reactivated with complete state reset (baseline_status=pending, seen_listing_keys=[], consecutive_errors=0). (4) Complete Lifecycle: Create → Soft Delete → Reactivate → Hard Delete → Fresh Create all working correctly. (5) German UX: Reactivation message '✅ Suchbegriff reaktiviert: **keyword** – Baseline wird neu aufgebaut.' displays correctly. (6) Duplicate Check Instrumentation: Logging shows correct is_active status for debugging. (7) Integration Testing: All command flows (search, delete, clear) working with proper case-insensitive handling. All 11 comprehensive tests passed - bug is fully resolved."
 
 frontend:
   - task: "N/A - Backend bot only"
