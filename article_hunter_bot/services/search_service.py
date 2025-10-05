@@ -76,6 +76,7 @@ class SearchService:
                     logger.info({
                         "event": "decision",
                         "platform": item.platform,
+                        "keyword_norm": keyword.normalized_keyword,
                         "listing_key": listing_key,
                         "posted_ts_utc": item.posted_ts.isoformat() if item.posted_ts else None,
                         "since_ts_utc": keyword.since_ts.isoformat(),
