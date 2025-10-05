@@ -153,7 +153,7 @@ async def cmd_search(message: Message):
         await db_manager.create_keyword(keyword)
         
         # Perform full baseline seed with state machine
-        baseline_items = await search_service.full_baseline_seed(keyword_text, keyword.id)
+        baseline_items, last_item_meta = await search_service.full_baseline_seed(keyword_text, keyword.id)
         
         # Seed seen_listing_keys with all baseline results
         seen_keys = []
@@ -167,13 +167,20 @@ async def cmd_search(message: Message):
         if polling_scheduler:
             polling_scheduler.add_keyword_job(keyword, user.telegram_id)
         
-        # Format response message
+        # Format main response message
         response_text = (
             f"Suche eingerichtet: \"{keyword_text}\"\\n\\n"
             f"✅ Baseline abgeschlossen – Ich benachrichtige Sie künftig nur bei neuen Angeboten.\\n"
             f"⏱️ Frequenz: Alle 60 Sekunden\\n\\n"
             f"📊 {len(seen_keys)} Angebote als Baseline erfasst"
         )
+        
+        # Add verification block if we have a last item
+        if last_item_meta and last_item_meta.get("listing"):
+            verification_text = await _format_verification_block(
+                last_item_meta, keyword_text, search_service
+            )
+            response_text += "\\n\\n" + verification_text
         
         await status_msg.edit_text(response_text, parse_mode="Markdown")
         
