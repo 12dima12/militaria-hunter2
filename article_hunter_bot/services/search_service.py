@@ -1,8 +1,10 @@
 import logging
+import os
 import re
 import unicodedata
+import asyncio
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Literal
 
 from database import DatabaseManager
 from models import Keyword, Listing, StoredListing
@@ -10,6 +12,15 @@ from providers.militaria321 import Militaria321Provider
 from utils.text import br_join, b, i, a, code, fmt_ts_de, fmt_price_de, safe_truncate
 
 logger = logging.getLogger(__name__)
+
+# Configuration constants with environment variable support
+POLL_MODE = os.environ.get("POLL_MODE", "rotate")  # "full" or "rotate"
+PRIMARY_PAGES = int(os.environ.get("PRIMARY_PAGES", "1"))
+POLL_WINDOW = int(os.environ.get("POLL_WINDOW", "5"))
+MAX_PAGES_PER_CYCLE = int(os.environ.get("MAX_PAGES_PER_CYCLE", "40"))
+DETAIL_CONCURRENCY = int(os.environ.get("DETAIL_CONCURRENCY", "4"))
+GRACE_MINUTES = int(os.environ.get("GRACE_MINUTES", "60"))
+POLL_INTERVAL_SECONDS = int(os.environ.get("POLL_INTERVAL_SECONDS", "60"))
 
 
 class SearchService:
