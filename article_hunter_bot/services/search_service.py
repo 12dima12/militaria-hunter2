@@ -27,6 +27,29 @@ class SearchService:
         
         Returns only items that pass strict newness gating with deduplication
         """
+        # Check if keyword needs migration (empty or non-ID-based seen_listing_keys)
+        needs_migration = False
+        if not keyword.seen_listing_keys:
+            logger.info(f"Keyword {keyword.normalized_keyword} has empty seen_listing_keys - triggering migration")
+            needs_migration = True
+        elif len(keyword.seen_listing_keys) < 10:  # Suspiciously small for militaria321
+            # Check if keys are ID-based
+            non_id_keys = [k for k in keyword.seen_listing_keys[:5] if not (k.startswith('militaria321.com:') and k.split(':', 1)[1].isdigit())]
+            if non_id_keys:
+                logger.info(f"Keyword {keyword.normalized_keyword} has non-ID-based seen_listing_keys - triggering migration")
+                needs_migration = True
+        
+        if needs_migration:
+            try:
+                await self.reseed_seen_keys_for_keyword(keyword.id)
+                # Reload keyword after migration
+                doc = await self.db.db.keywords.find_one({"id": keyword.id})
+                keyword = Keyword(**doc)
+                logger.info(f"Migration completed for {keyword.normalized_keyword}: {len(keyword.seen_listing_keys)} keys")
+            except Exception as e:
+                logger.error(f"Migration failed for {keyword.normalized_keyword}: {e}")
+                # Continue with polling even if migration fails
+        
         all_new_items = []
         seen_this_run = set()  # In-run deduplication
         
