@@ -220,11 +220,18 @@ class SearchService:
         # Rule 6: Healthy
         return "✅ Läuft", "Letzte Prüfung erfolgreich"
     
-    async def full_baseline_crawl(self, keyword_text: str) -> List[Listing]:
+    async def full_baseline_crawl(self, keyword_text: str, keyword_id: Optional[str] = None) -> List[Listing]:
         """Perform full baseline crawl across ALL pages on militaria321.com
         
         Used for /search command to seed seen_listing_keys
         """
+        # Update baseline status to running if keyword_id provided
+        if keyword_id:
+            await self.db.db.keywords.update_one(
+                {"id": keyword_id},
+                {"$set": {"baseline_status": "running", "baseline_errors": {}}}
+            )
+        
         provider = self.providers["militaria321.com"]
         
         try:
@@ -234,11 +241,36 @@ class SearchService:
                 crawl_all=True  # Baseline mode - all pages
             )
             
+            # Update baseline status to complete if keyword_id provided
+            if keyword_id:
+                await self.db.db.keywords.update_one(
+                    {"id": keyword_id},
+                    {"$set": {
+                        "baseline_status": "complete",
+                        "baseline_errors": {},
+                        "last_success_ts": datetime.utcnow(),
+                        "consecutive_errors": 0
+                    }}
+                )
+            
             logger.info(f"Baseline crawl for '{keyword_text}': {len(result.items)} items, {result.pages_scanned} pages")
             return result.items
         
         except Exception as e:
             logger.error(f"Error in baseline crawl: {e}")
+            
+            # Update baseline status to error if keyword_id provided
+            if keyword_id:
+                await self.db.db.keywords.update_one(
+                    {"id": keyword_id},
+                    {"$set": {
+                        "baseline_status": "error",
+                        "baseline_errors": {"militaria321.com": str(e)[:200]},
+                        "last_error_ts": datetime.utcnow(),
+                        "last_error_message": str(e)[:500]
+                    }}
+                )
+            
             return []
     
     async def full_recheck_crawl(self, keyword_text: str) -> dict:
