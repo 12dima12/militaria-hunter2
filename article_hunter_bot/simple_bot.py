@@ -254,9 +254,9 @@ async def cmd_delete(message: Message):
         await message.answer("❌ Suchbegriff darf nicht leer sein.")
         return
     
-    # Find keyword
+    # Find keyword (only active ones)
     normalized = SearchService.normalize_keyword(keyword_text)
-    keyword = await db_manager.get_keyword_by_normalized(user.id, normalized)
+    keyword = await db_manager.get_keyword_by_normalized(user.id, normalized, active_only=True)
     
     if not keyword:
         await message.answer(
@@ -266,8 +266,14 @@ async def cmd_delete(message: Message):
         return
     
     try:
-        # Delete keyword (scheduler will handle job removal)
-        await db_manager.delete_keyword(keyword.id)
+        # Soft delete keyword (set is_active = False)
+        await db_manager.db.keywords.update_one(
+            {"id": keyword.id},
+            {"$set": {
+                "is_active": False,
+                "updated_at": datetime.utcnow()
+            }}
+        )
         
         # Remove from scheduler
         if polling_scheduler:
@@ -277,7 +283,12 @@ async def cmd_delete(message: Message):
             f"Überwachung für \"{keyword.original_keyword}\" wurde gelöscht."
         )
         
-        logger.info(f"Keyword deleted: '{keyword.original_keyword}' (user {user.id})")
+        logger.info({
+            "event": "keyword_soft_deleted",
+            "keyword_id": keyword.id,
+            "keyword": keyword.original_keyword,
+            "user_id": user.id
+        })
         
     except Exception as e:
         logger.error(f"Error deleting keyword: {e}")
