@@ -119,18 +119,20 @@ class Militaria321Provider(BaseProvider):
                             matched_items.append(item)
                             seen_ids.add(item.platform_id)
                     
-                    logger.info({
-                        "event": "m321_page",
-                        "q": keyword,
-                        "page_index": page_index,
-                        "startat": startat,
-                        "items_on_page": len(page_items),
-                        "duplicates_on_page": duplicates_on_page,
-                        "matched_items": len(matched_items),
-                        "crawl_all": crawl_all,
-                        "total_matched_so_far": len(all_items) + len(matched_items),
-                        "url": str(response.url)
-                    })
+                    # Log progress every 10 pages or for first/last pages to reduce log volume
+                    if page_index % 10 == 0 or page_index <= 3 or len(page_items) < 10:
+                        logger.info({
+                            "event": "m321_page",
+                            "q": keyword,
+                            "page_index": page_index,
+                            "startat": startat,
+                            "items_on_page": len(page_items),
+                            "duplicates_on_page": duplicates_on_page,
+                            "matched_items": len(matched_items),
+                            "crawl_all": crawl_all,
+                            "total_matched_so_far": len(all_items) + len(matched_items),
+                            "progress": f"{page_index}/{max_pages} pages"
+                        })
                     
                     all_items.extend(matched_items)
                     
