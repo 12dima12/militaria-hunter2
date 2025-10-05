@@ -563,12 +563,15 @@ async def kw_diagnosis(callback: CallbackQuery):
             diagnosis_report = await search_service.diagnose_keyword(keyword, polling_scheduler)
             
             # Send diagnosis report
-            await callback.message.reply(diagnosis_report)
+            await callback.message.reply(diagnosis_report, parse_mode="HTML")
+            logger.info({"event": "send_text", "len": len(diagnosis_report), "preview": diagnosis_report[:120].replace("\n", "⏎")})
             
         except Exception as e:
             logger.error(f"Error in diagnosis: {e}")
             error_msg = str(e)[:100] + "..." if len(str(e)) > 100 else str(e)
-            await callback.message.reply(f"❌ Fehler bei der Diagnose: {error_msg}")
+            error_text = f"❌ Fehler bei der Diagnose: {error_msg}"
+            await callback.message.reply(error_text, parse_mode="HTML")
+            logger.info({"event": "send_text", "len": len(error_text), "preview": error_text[:120].replace("\n", "⏎")})
         
     except Exception as e:
         logger.error(f"Error in kw_diagnosis: {e}")
