@@ -358,6 +358,18 @@ backend:
         agent: "testing"
         comment: "✓ COMPREHENSIVE TESTING COMPLETE: All duplicate keyword bug fixes verified working correctly. (1) Database Helper: get_keyword_by_normalized() active_only parameter working perfectly - finds active keywords with active_only=True, returns None for inactive keywords with active_only=True, finds inactive keywords with active_only=False. (2) Soft vs Hard Delete: Soft delete properly sets is_active=False while preserving record, hard delete completely removes record. (3) Keyword Reactivation: Inactive keywords properly reactivated with complete state reset (baseline_status=pending, seen_listing_keys=[], consecutive_errors=0). (4) Complete Lifecycle: Create → Soft Delete → Reactivate → Hard Delete → Fresh Create all working correctly. (5) German UX: Reactivation message '✅ Suchbegriff reaktiviert: **keyword** – Baseline wird neu aufgebaut.' displays correctly. (6) Duplicate Check Instrumentation: Logging shows correct is_active status for debugging. (7) Integration Testing: All command flows (search, delete, clear) working with proper case-insensitive handling. All 11 comprehensive tests passed - bug is fully resolved."
 
+  - task: "Deep Pagination System for End-Date Sorting Issue"
+    implemented: true
+    working: true
+    file: "/app/article_hunter_bot/models.py, /app/article_hunter_bot/services/search_service.py, /app/article_hunter_bot/providers/militaria321.py, /app/article_hunter_bot/simple_bot.py, /app/article_hunter_bot/.env"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "DEEP PAGINATION SYSTEM COMPLETE! Successfully solved militaria321.com end-date sorting issue where new items on deeper pages were missed. Implementation includes: (1) Enhanced Keyword model with poll_cursor_page, total_pages_estimate, poll_mode, poll_window fields, (2) Two polling strategies: full-scan (all pages) and rotating deep-scan (primary + rotating window), (3) Provider single-page mode with enhanced metadata, (4) ENV configuration (POLL_MODE=rotate, POLL_WINDOW=5, MAX_PAGES_PER_CYCLE=40), (5) Comprehensive structured logging (poll_start, poll_summary, m321_page, decision), (6) Enhanced /list command with poll telemetry display, (7) Safe throttling and concurrency control. Functional testing passed: page selection logic working, single-page fetching operational, cursor advancement confirmed, structured logs correct. System guarantees no missed new items while maintaining site-friendly behavior."
+
 frontend:
   - task: "N/A - Backend bot only"
     implemented: false
