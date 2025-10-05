@@ -315,45 +315,18 @@ class SearchService:
         primary_pages: int, 
         max_pages_per_cycle: int
     ) -> List[int]:
-        """Determine which pages to scan based on polling mode and parameters"""
+        """Determine which pages to scan - SCAN ALL PAGES to prevent missed items"""
         
-        if poll_mode == "full":
-            # Full-scan mode: scan all available pages up to max limit
-            if total_pages_estimate:
-                return list(range(1, min(total_pages_estimate + 1, max_pages_per_cycle + 1)))
-            else:
-                return list(range(1, max_pages_per_cycle + 1))
+        # For militaria321.com end-date sorting issue, we need to scan ALL pages
+        # to ensure no new items are missed regardless of their position
         
-        elif poll_mode == "rotate":
-            # Rotating deep-scan mode
-            pages_to_scan = []
-            
-            # Always scan primary pages (typically page 1)
-            pages_to_scan.extend(range(1, primary_pages + 1))
-            
-            # Add rotating window starting at cursor_page
-            window_start = cursor_page
-            window_end = cursor_page + window_size - 1
-            
-            # If we have total_pages_estimate, wrap around properly
-            if total_pages_estimate:
-                for i in range(window_size):
-                    page_num = ((window_start + i - 1) % total_pages_estimate) + 1
-                    if page_num not in pages_to_scan:
-                        pages_to_scan.append(page_num)
-            else:
-                # No estimate: scan sequential window, cap at max_pages_per_cycle
-                for page_num in range(window_start, min(window_end + 1, max_pages_per_cycle + 1)):
-                    if page_num not in pages_to_scan:
-                        pages_to_scan.append(page_num)
-            
-            # Ensure we don't exceed max_pages_per_cycle
-            pages_to_scan = sorted(set(pages_to_scan))[:max_pages_per_cycle]
-            return pages_to_scan
-        
+        if total_pages_estimate and total_pages_estimate > 0:
+            # Scan all pages up to the estimate, respecting max limit
+            max_pages_to_scan = min(total_pages_estimate, max_pages_per_cycle)
+            return list(range(1, max_pages_to_scan + 1))
         else:
-            # Default: just primary pages
-            return list(range(1, primary_pages + 1))
+            # No estimate available: scan up to max limit to be safe
+            return list(range(1, max_pages_per_cycle + 1))
     
     def _build_canonical_listing_key(self, item: Listing) -> str:
         """Build canonical listing key: militaria321.com:<numeric_id>"""
