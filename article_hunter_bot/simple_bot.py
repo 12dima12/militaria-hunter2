@@ -115,20 +115,26 @@ async def cmd_search(message: Message):
     # Extract keyword from command
     args = message.text.split(" ", 1)
     if len(args) < 2:
-        await message.answer(
-            "❌ Bitte geben Sie einen Suchbegriff an.\\n\\n"
-            "Beispiel: `/search Wehrmacht Helm`",
-            parse_mode="Markdown"
-        )
+        text = br_join([
+            "❌ Bitte geben Sie einen Suchbegriff an.",
+            "",
+            f"Beispiel: {code('/search Wehrmacht Helm')}"
+        ])
+        await message.answer(text, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(text), "preview": text[:120].replace("\n", "⏎")})
         return
     
     keyword_text = args[1].strip()
     if not keyword_text:
-        await message.answer("❌ Suchbegriff darf nicht leer sein.")
+        text = "❌ Suchbegriff darf nicht leer sein."
+        await message.answer(text, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(text), "preview": text[:120].replace("\n", "⏎")})
         return
     
     if len(keyword_text) > 100:
-        await message.answer("❌ Suchbegriff ist zu lang (max. 100 Zeichen).")
+        text = "❌ Suchbegriff ist zu lang (max. 100 Zeichen)."
+        await message.answer(text, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(text), "preview": text[:120].replace("\n", "⏎")})
         return
     
     # Check if keyword already exists
