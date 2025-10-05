@@ -721,12 +721,16 @@ async def admin_clear_confirm(callback: CallbackQuery):
         
     except Exception as e:
         logger.error(f"Error in admin clear confirm: {e}")
-        await callback.message.edit_text("❌ Fehler bei der Bereinigung aufgetreten.")
+        error_text = "❌ Fehler bei der Bereinigung aufgetreten."
+        await callback.message.edit_text(error_text, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(error_text), "preview": error_text[:120].replace("\n", "⏎")})
         await callback.answer()
 
 async def admin_clear_cancel(callback: CallbackQuery):
     """Handle admin clear cancellation"""
-    await callback.message.edit_text("❌ Abgebrochen.")
+    text = "❌ Abgebrochen."
+    await callback.message.edit_text(text, parse_mode="HTML")
+    logger.info({"event": "send_text", "len": len(text), "preview": text[:120].replace("\n", "⏎")})
     await callback.answer()
 
 async def main():
