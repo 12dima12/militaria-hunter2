@@ -16,6 +16,8 @@ A sophisticated Telegram bot that monitors militaria321.com for new listings mat
 
 ## Quick Start
 
+📋 **For detailed deployment instructions, see [DEPLOYMENT_GUIDE.md](../DEPLOYMENT_GUIDE.md)**
+
 ### Docker (Recommended)
 
 1. **Clone and setup:**
