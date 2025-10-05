@@ -540,7 +540,7 @@ async def main():
     router.callback_query.register(admin_clear_cancel, F.data == "admin_clear_cancel")
     
     # List command callbacks
-    router.callback_query.register(kw_health_retest, F.data.startswith("kw_health_retest:"))
+    router.callback_query.register(kw_diagnosis, F.data.startswith("kw_diag:"))
     router.callback_query.register(kw_delete_callback, F.data.startswith("kw_del:"))
     
     # Callback handlers
