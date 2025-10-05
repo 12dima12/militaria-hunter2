@@ -312,11 +312,13 @@ async def cmd_delete(message: Message):
     # Extract keyword from command
     args = message.text.split(" ", 1)
     if len(args) < 2:
-        await message.answer(
-            "❌ Bitte geben Sie den zu löschenden Suchbegriff an.\\n\\n"
-            "Beispiel: `/delete Wehrmacht Helm`",
-            parse_mode="Markdown"
-        )
+        text = br_join([
+            "❌ Bitte geben Sie den zu löschenden Suchbegriff an.",
+            "",
+            f"Beispiel: {code('/delete Wehrmacht Helm')}"
+        ])
+        await message.answer(text, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(text), "preview": text[:120].replace("\n", "⏎")})
         return
     
     keyword_text = args[1].strip()
