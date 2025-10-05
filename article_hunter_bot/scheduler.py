@@ -205,3 +205,17 @@ class PollingScheduler:
         """Get next run time for job (UTC)"""
         job = self.scheduler.get_job(job_id)
         return job.next_run_time if job else None
+    
+    def stop_keyword_job(self, job_id: str) -> bool:
+        """Stop and remove a keyword job"""
+        job = self.scheduler.get_job(job_id)
+        if not job:
+            return False
+        
+        try:
+            self.scheduler.remove_job(job_id)
+            self.active_jobs.discard(job_id.replace("keyword_", ""))  # Remove from active set
+            return True
+        except Exception as e:
+            logger.warning(f"Error stopping job {job_id}: {e}")
+            return False
