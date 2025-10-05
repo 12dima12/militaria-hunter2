@@ -229,7 +229,7 @@ class SearchService:
                 return "/"
             return dt_utc.astimezone(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M") + " Uhr"
         
-        diagnosis_lines = [f"🔍 Diagnose für „{keyword.original_keyword}""]
+        diagnosis_lines = [f"🔍 Diagnose für \"{keyword.original_keyword}\""]
         
         # 1. Baseline state analysis
         baseline_info = f"• Baseline: {keyword.baseline_status}"
