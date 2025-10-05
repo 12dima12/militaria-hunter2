@@ -330,15 +330,18 @@ backend:
 
   - task: "Refactor /clear command for user-specific deletion"
     implemented: true
-    working: "NA"
+    working: true
     file: "/app/article_hunter_bot/simple_bot.py, /app/article_hunter_bot/scheduler.py, /app/article_hunter_bot/database.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: "NA"
         agent: "main"
         comment: "Completed full refactor: (1) Added stop_keyword_job() helper in scheduler.py with idempotent job removal, (2) Database helpers for cascading deletes implemented, (3) Updated /clear command with German 2-step confirmation, (4) /clear now deletes caller's keywords only, /clear data keeps global wipe, (5) New callback handlers: clear_my_keywords_confirm, clear_data_confirm, clear_cancel, (6) Comprehensive logging and error handling. Bot code updated but Telegram conflict preventing full testing."
+      - working: true
+        agent: "testing"
+        comment: "✓ VERIFIED: All /clear command refactor functionality working correctly. (1) Scheduler stop_keyword_job() helper function working with proper idempotency, (2) Database cascading delete helpers (get_user_keyword_ids, delete_keywords_by_ids, delete_keyword_hits_by_keyword_ids, delete_notifications_by_keyword_ids) all functional, (3) German UX messages properly formatted, (4) Both /clear (user-specific) and /clear data (global) pathways working, (5) Job stopping integration verified, (6) Idempotency safety confirmed - running operations twice is safe. All 7 comprehensive tests passed."
 
 frontend:
   - task: "N/A - Backend bot only"
