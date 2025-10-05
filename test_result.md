@@ -328,6 +328,18 @@ backend:
         agent: "testing"
         comment: "✗ CRITICAL: militaria321.py file is TRUNCATED at line 252. Missing essential methods: _fetch_page(), _parse_posted_ts_from_text(), fetch_posted_ts_batch(). All searches return 0 results. Complete implementation available in /app/article_hunter_bot/providers/militaria321.py. Current working methods: build_query(), matches_keyword(), parse_price(), format_price_de()."
 
+  - task: "Refactor /clear command for user-specific deletion"
+    implemented: true
+    working: "NA"
+    file: "/app/article_hunter_bot/simple_bot.py, /app/article_hunter_bot/scheduler.py, /app/article_hunter_bot/database.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Completed full refactor: (1) Added stop_keyword_job() helper in scheduler.py with idempotent job removal, (2) Database helpers for cascading deletes implemented, (3) Updated /clear command with German 2-step confirmation, (4) /clear now deletes caller's keywords only, /clear data keeps global wipe, (5) New callback handlers: clear_my_keywords_confirm, clear_data_confirm, clear_cancel, (6) Comprehensive logging and error handling. Bot code updated but Telegram conflict preventing full testing."
+
 frontend:
   - task: "N/A - Backend bot only"
     implemented: false
