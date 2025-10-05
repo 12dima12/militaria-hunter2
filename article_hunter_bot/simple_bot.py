@@ -476,6 +476,65 @@ async def kw_delete_callback(callback: CallbackQuery):
         logger.error(f"Error in kw_delete_callback: {e}")
         await callback.answer("❌ Fehler beim Löschen.", show_alert=True)
 
+async def clear_my_keywords_confirm(callback: CallbackQuery):
+    """Handle user-specific keyword deletion confirmation"""
+    user = await ensure_user(callback.from_user)
+    
+    kw_ids = await db_manager.get_user_keyword_ids(user.id)
+    if not kw_ids:
+        await callback.message.edit_text("Sie haben derzeit keine Suchbegriffe.")
+        await callback.answer()
+        return
+
+    # Stop jobs (idempotent)
+    stopped = 0
+    for kw_id in kw_ids:
+        if stop_keyword_job(f"kw:{kw_id}"):
+            stopped += 1
+
+    # Delete artifacts first, then keywords (order prevents dangling refs)
+    n_hits = await db_manager.delete_keyword_hits_by_keyword_ids(kw_ids)
+    n_notifs = await db_manager.delete_notifications_by_keyword_ids(kw_ids)
+    n_kw = await db_manager.delete_keywords_by_ids(kw_ids)
+
+    logger.warning({
+        "event": "clear_my_keywords",
+        "user_id": user.id,
+        "kw_deleted": n_kw,
+        "jobs_stopped": stopped,
+        "hits_deleted": n_hits,
+        "notifs_deleted": n_notifs
+    })
+
+    await callback.message.edit_text(
+        f"🧹 Bereinigung abgeschlossen.\n"
+        f"• Keywords: {n_kw}\n"
+        f"• Gestoppte Jobs: {stopped}\n"
+        f"• Keyword-Treffer: {n_hits}\n"
+        f"• Benachrichtigungen: {n_notifs}"
+    )
+    await callback.answer()
+
+async def clear_data_confirm(callback: CallbackQuery):
+    """Handle global data wipe confirmation"""
+    # Call your existing global wipe function (listings/notifications/hits)
+    try:
+        res = await db_manager.admin_clear_products()  # existing method
+        await callback.message.edit_text(
+            f"🧹 Bereinigung abgeschlossen.\n"
+            f"• Listings: {res.get('listings', 0)}\n"
+            f"• Keyword-Treffer: {res.get('keyword_hits', 0)}\n"
+            f"• Benachrichtigungen: {res.get('notifications', 0)}"
+        )
+    except Exception as e:
+        await callback.message.edit_text(f"❌ Fehler beim Löschen: {str(e)[:200]}")
+    await callback.answer()
+
+async def clear_cancel(callback: CallbackQuery):
+    """Handle clear operation cancellation"""
+    await callback.message.edit_text("❌ Abgebrochen.")
+    await callback.answer()
+
 async def admin_clear_confirm(callback: CallbackQuery):
     """Handle admin clear confirmation"""
     try:
