@@ -83,12 +83,16 @@ class DatabaseManager:
         cursor = self.db.keywords.find(filter_dict)
         return [Keyword(**doc) async for doc in cursor]
     
-    async def get_keyword_by_normalized(self, user_id: str, normalized_keyword: str) -> Optional[Keyword]:
+    async def get_keyword_by_normalized(self, user_id: str, normalized_keyword: str, active_only: bool = False) -> Optional[Keyword]:
         """Get keyword by normalized text"""
-        doc = await self.db.keywords.find_one({
+        query = {
             "user_id": user_id,
             "normalized_keyword": normalized_keyword
-        })
+        }
+        if active_only:
+            query["is_active"] = True
+            
+        doc = await self.db.keywords.find_one(query)
         return Keyword(**doc) if doc else None
     
     async def create_keyword(self, keyword: Keyword) -> Keyword:
