@@ -683,24 +683,136 @@ class SearchService:
         
         return all_items, last_item_meta
     
-    async def full_recheck_crawl(self, keyword_text: str) -> dict:
-        """Perform full re-scan for /check command
+    async def manual_backfill_check(self, keyword_text: str, user_id: str) -> dict:
+        """Manual backfill and verification for /check command
         
-        Returns page/item counts per provider
+        Detects any pending/unprocessed listings that might have been missed
+        (e.g., if bot was offline) and processes them accordingly.
+        
+        Returns detailed report of what was found, backfilled, and processed.
         """
         results = {}
+        
+        # Find the keyword subscription
+        normalized_keyword = self.normalize_keyword(keyword_text)
+        keyword = await self.db.get_keyword_by_normalized(user_id, normalized_keyword, active_only=True)
+        
+        if not keyword:
+            return {
+                "error": f"Keine aktive Überwachung für '{keyword_text}' gefunden.",
+                "pages_scanned": 0,
+                "total_count": 0,
+                "backfilled": 0,
+                "pushed": 0,
+                "absorbed": 0
+            }
         
         provider = self.providers["militaria321.com"]
         
         try:
-            # Crawl all pages and update database
+            logger.info(f"Starting manual backfill check for '{keyword_text}' (user: {user_id})")
+            
+            # Perform full crawl to get current state
             result = await provider.search(
-                keyword=keyword_text,
-                crawl_all=True
+                keyword=keyword.original_keyword,
+                crawl_all=True,
+                max_pages_override=MAX_PAGES_PER_CYCLE
             )
             
-            # Store/update all listings in database
-            for item in result.items:
+            # Track what we find and process
+            all_items = result.items
+            seen_this_run = set()
+            backfilled_items = []
+            pushed_count = 0
+            absorbed_count = 0
+            
+            logger.info(f"Manual backfill: found {len(all_items)} total items across {result.pages_scanned} pages")
+            
+            # Process and deduplicate items
+            for item in all_items:
+                listing_key = self._build_canonical_listing_key(item)
+                
+                # Skip duplicates within this run
+                if listing_key in seen_this_run:
+                    continue
+                seen_this_run.add(listing_key)
+                
+                # Update item with canonical key
+                item.platform_id = listing_key.split(':', 1)[1]
+                
+                # Check if this is a missing/unprocessed item
+                if listing_key not in keyword.seen_listing_keys:
+                    backfilled_items.append(item)
+                    logger.info(f"Backfill candidate: {listing_key} - {item.title[:50]}...")
+            
+            logger.info(f"Manual backfill: found {len(backfilled_items)} unprocessed items to evaluate")
+            
+            # Enrich backfilled items with posted_ts if needed
+            if backfilled_items:
+                await provider.fetch_posted_ts_batch(backfilled_items, concurrency=DETAIL_CONCURRENCY)
+            
+            # Process backfilled items through normal newness gating
+            new_seen_keys = []
+            notifications_queued = []
+            
+            for item in backfilled_items:
+                listing_key = self._build_canonical_listing_key(item)
+                
+                # Add to seen set regardless (backfill/catch-up)
+                new_seen_keys.append(listing_key)
+                
+                # Apply newness gating for notifications
+                if self._is_new_listing(item, keyword):
+                    # This is a genuinely new item that should have been pushed
+                    notifications_queued.append(item)
+                    pushed_count += 1
+                    
+                    logger.info({
+                        "event": "backfill_decision",
+                        "platform": item.platform,
+                        "keyword_norm": keyword.normalized_keyword,
+                        "listing_key": listing_key,
+                        "posted_ts_utc": item.posted_ts.isoformat() if item.posted_ts else None,
+                        "since_ts_utc": keyword.since_ts.isoformat(),
+                        "decision": "backfill_push",
+                        "reason": "posted_ts>=since_ts" if item.posted_ts else "grace_window_allowed"
+                    })
+                else:
+                    absorbed_count += 1
+                    reason = self._get_filter_reason(item, keyword)
+                    logger.info({
+                        "event": "backfill_decision",
+                        "platform": item.platform,
+                        "keyword_norm": keyword.normalized_keyword,
+                        "listing_key": listing_key,
+                        "posted_ts_utc": item.posted_ts.isoformat() if item.posted_ts else None,
+                        "since_ts_utc": keyword.since_ts.isoformat(),
+                        "decision": "backfill_absorb",
+                        "reason": reason
+                    })
+            
+            # Update seen_listing_keys with backfilled items
+            if new_seen_keys:
+                await self.db.db.keywords.update_one(
+                    {"id": keyword.id},
+                    {"$addToSet": {"seen_listing_keys": {"$each": new_seen_keys}}}
+                )
+                logger.info(f"Backfilled {len(new_seen_keys)} items into seen_listing_keys for '{keyword_text}'")
+            
+            # Send notifications for genuinely new items found during backfill
+            actual_pushed = 0
+            if notifications_queued:
+                notification_service = NotificationService(self.db, None)  # No bot needed for sending
+                for item in notifications_queued:
+                    try:
+                        success = await notification_service.send_notification(user_id, keyword, item)
+                        if success:
+                            actual_pushed += 1
+                    except Exception as e:
+                        logger.error(f"Failed to send backfill notification for {listing_key}: {e}")
+            
+            # Store/update all listings in database for completeness
+            for item in all_items:
                 stored_listing = StoredListing(
                     platform=item.platform,
                     platform_id=item.platform_id,
@@ -717,17 +829,27 @@ class SearchService:
                 )
                 await self.db.upsert_listing(stored_listing)
             
-            results[provider.platform_name] = {
+            results = {
+                "platform_name": provider.platform_name,
                 "pages_scanned": result.pages_scanned or 1,
-                "total_count": len(result.items),
+                "total_count": len(all_items),
+                "backfilled": len(backfilled_items),
+                "pushed": actual_pushed,
+                "absorbed": absorbed_count,
                 "error": None
             }
             
+            logger.info(f"Manual backfill complete: {results}")
+            
         except Exception as e:
-            logger.error(f"Error in recheck crawl: {e}")
-            results[provider.platform_name] = {
+            logger.error(f"Error in manual backfill check: {e}")
+            results = {
+                "platform_name": provider.platform_name,
                 "pages_scanned": 0,
                 "total_count": 0,
+                "backfilled": 0,
+                "pushed": 0,
+                "absorbed": 0,
                 "error": str(e)
             }
         
