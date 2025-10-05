@@ -21,8 +21,8 @@ async def debug_seen_keys():
     await db_manager.initialize()
     
     try:
-        # Get all active keywords 
-        cursor = db_manager.db.keywords.find({"is_active": True})
+        # Get ALL keywords (active and inactive)
+        cursor = db_manager.db.keywords.find({})
         keyword_docs = await cursor.to_list(length=None)
         
         from models import Keyword
