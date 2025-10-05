@@ -708,12 +708,15 @@ async def admin_clear_confirm(callback: CallbackQuery):
         })
         
         # Send success message
-        await callback.message.edit_text(
-            f"🧹 Bereinigung abgeschlossen.\n"
-            f"• Listings: {result['listings']}\n"
-            f"• Keyword-Treffer: {result['keyword_hits']}\n"
+        success_text = br_join([
+            "🧹 Bereinigung abgeschlossen.",
+            "",
+            f"• Listings: {result['listings']}",
+            f"• Keyword-Treffer: {result['keyword_hits']}",
             f"• Benachrichtigungen: {result['notifications']}"
-        )
+        ])
+        await callback.message.edit_text(success_text, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(success_text), "preview": success_text[:120].replace("\n", "⏎")})
         await callback.answer()
         
     except Exception as e:
