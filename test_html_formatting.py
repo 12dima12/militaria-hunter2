@@ -145,9 +145,9 @@ def test_log_preview():
         "Very long message " * 10
     ]
     
-    for i, text in enumerate(sample_texts, 1):
+    for idx, text in enumerate(sample_texts, 1):
         preview = text[:120].replace("\n", "⏎")
-        print(f"Text {i}: len={len(text)}, preview='{preview}'")
+        print(f"Text {idx}: len={len(text)}, preview='{preview}'")
 
 if __name__ == "__main__":
     test_text_utilities()
