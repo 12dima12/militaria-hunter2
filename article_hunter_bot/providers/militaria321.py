@@ -163,8 +163,11 @@ class Militaria321Provider(BaseProvider):
                         logger.info(f"Reached last page {page_index} with {len(page_items)} items")
                         break
                     
-                    # Polite delay between pages
-                    await asyncio.sleep(0.4)  # 400ms delay
+                    # Adaptive delay - faster for large crawls, polite for small ones
+                    if crawl_all and page_index > 10:
+                        await asyncio.sleep(0.2)  # Faster delay for large crawls
+                    else:
+                        await asyncio.sleep(0.4)  # Polite delay for small crawls
                     page_index += 1
                     
                 except Exception as e:
