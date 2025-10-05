@@ -28,12 +28,17 @@ async def debug_seen_keys():
         from models import Keyword
         keywords = [Keyword(**doc) for doc in keyword_docs]
         
-        print(f"Total active keywords found: {len(keywords)}")
+        print(f"Total keywords found: {len(keywords)}")
+        
+        # Show ALL keywords
+        for keyword in keywords:
+            print(f"Found keyword: {keyword.normalized_keyword}, since_ts: {keyword.since_ts}, user_id: {keyword.user_id}, active: {keyword.is_active}")
+            if len(keyword.seen_listing_keys) > 0:
+                print(f"  HAS SEEN KEYS: {len(keyword.seen_listing_keys)}")
         
         # Search for keywords by exact attributes from logs
         target_keywords = []
         for keyword in keywords:
-            print(f"Found keyword: {keyword.normalized_keyword}, since_ts: {keyword.since_ts}, user_id: {keyword.user_id}, active: {keyword.is_active}")
             if keyword.normalized_keyword in ['orden', 'sammlung', 'abzeichen']:
                 target_keywords.append(keyword)
         
