@@ -21,14 +21,22 @@ async def debug_seen_keys():
     await db_manager.initialize()
     
     try:
-        # Get all active keywords
+        # Get all active keywords 
         cursor = db_manager.db.keywords.find({"is_active": True})
         keyword_docs = await cursor.to_list(length=None)
         
         from models import Keyword
         keywords = [Keyword(**doc) for doc in keyword_docs]
         
-        for keyword in keywords[:2]:  # Check first 2 keywords
+        print(f"Total active keywords found: {len(keywords)}")
+        
+        # Find keywords with the normalized names from the logs
+        target_keywords = []
+        for keyword in keywords:
+            if keyword.normalized_keyword in ['orden', 'sammlung', 'abzeichen']:
+                target_keywords.append(keyword)
+        
+        for keyword in target_keywords:  # Check target keywords
             print(f"Keyword: {keyword.original_keyword}")
             print(f"  User ID: {keyword.user_id}")
             print(f"  Since TS: {keyword.since_ts}")
