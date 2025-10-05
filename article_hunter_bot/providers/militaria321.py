@@ -212,8 +212,9 @@ class Militaria321Provider(BaseProvider):
         return SearchResult(
             items=all_items,
             total_count=total_count or len(all_items),
-            has_more=False,  # We crawled all available
-            pages_scanned=pages_scanned
+            has_more=False,  # We crawled all available or single page
+            pages_scanned=pages_scanned,
+            last_page_index=last_page_index
         )
     
     def _parse_items_from_page(self, soup: BeautifulSoup) -> List[Listing]:
