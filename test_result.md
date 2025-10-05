@@ -343,6 +343,18 @@ backend:
         agent: "testing"
         comment: "✓ VERIFIED: All /clear command refactor functionality working correctly. (1) Scheduler stop_keyword_job() helper function working with proper idempotency, (2) Database cascading delete helpers (get_user_keyword_ids, delete_keywords_by_ids, delete_keyword_hits_by_keyword_ids, delete_notifications_by_keyword_ids) all functional, (3) German UX messages properly formatted, (4) Both /clear (user-specific) and /clear data (global) pathways working, (5) Job stopping integration verified, (6) Idempotency safety confirmed - running operations twice is safe. All 7 comprehensive tests passed."
 
+  - task: "Fix duplicate 'keyword exists' bug after /clear or /delete"
+    implemented: true
+    working: "NA"
+    file: "/app/article_hunter_bot/simple_bot.py, /app/article_hunter_bot/database.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "FIXED the root cause: (1) Added instrumentation logging for duplicate checks with is_active status, (2) Updated get_keyword_by_normalized() to support active_only filtering, (3) Implemented keyword reactivation logic for inactive keywords, (4) Modified /delete to use soft deletion (is_active=False) instead of hard delete, (5) /clear continues using hard deletion for complete cleanup, (6) Added German UX for reactivation: '✅ Suchbegriff reaktiviert: <keyword> – Baseline wird neu aufgebaut.', (7) Added comprehensive logging for debugging. Ready for testing complete flow: create → soft delete → reactivate → hard delete via /clear."
+
 frontend:
   - task: "N/A - Backend bot only"
     implemented: false
