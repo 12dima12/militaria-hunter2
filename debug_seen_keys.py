@@ -22,7 +22,11 @@ async def debug_seen_keys():
     
     try:
         # Get all active keywords
-        keywords = await db_manager.get_user_keywords(None, active_only=True)
+        cursor = db_manager.db.keywords.find({"is_active": True})
+        keyword_docs = await cursor.to_list(length=None)
+        
+        from models import Keyword
+        keywords = [Keyword(**doc) for doc in keyword_docs]
         
         for keyword in keywords[:2]:  # Check first 2 keywords
             print(f"Keyword: {keyword.original_keyword}")
