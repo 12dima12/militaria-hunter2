@@ -340,6 +340,98 @@ class SearchService:
         
         return br_join(diagnosis_lines)
     
+    async def reseed_seen_keys_for_keyword(self, keyword_id: str) -> dict:
+        """Migration: Re-crawl and populate ID-based seen_listing_keys for a keyword
+        
+        This is used to migrate keywords with empty or title-based seen_listing_keys
+        to the new ID-based system without sending notifications.
+        """
+        logger.info(f"Starting seen_listing_keys reseed for keyword {keyword_id}")
+        
+        # Get the keyword
+        doc = await self.db.db.keywords.find_one({"id": keyword_id})
+        if not doc:
+            raise ValueError(f"Keyword {keyword_id} not found")
+        
+        from models import Keyword
+        keyword = Keyword(**doc)
+        
+        # Mark as reseeding
+        await self.db.db.keywords.update_one(
+            {"id": keyword_id},
+            {"$set": {
+                "baseline_status": "running",
+                "baseline_started_ts": datetime.utcnow(),
+                "baseline_errors": {}
+            }}
+        )
+        
+        try:
+            # Crawl all pages to collect ID-based listing_keys
+            all_listing_keys = []
+            provider_results = {}
+            
+            for platform_name, provider in self.providers.items():
+                try:
+                    logger.info(f"Reseeding {platform_name} for keyword '{keyword.original_keyword}'")
+                    
+                    result = await provider.search(
+                        keyword=keyword.original_keyword,
+                        crawl_all=True  # Full crawl for reseed
+                    )
+                    
+                    # Extract listing keys (no detail fetches during reseed)
+                    for item in result.items:
+                        listing_key = self._build_canonical_listing_key(item)
+                        all_listing_keys.append(listing_key)
+                    
+                    provider_results[platform_name] = {
+                        "pages_scanned": result.pages_scanned or 0,
+                        "items_collected": len(result.items)
+                    }
+                    
+                except Exception as e:
+                    error_msg = str(e)[:400]
+                    provider_results[platform_name] = {"error": error_msg}
+                    logger.error(f"Error reseeding {platform_name}: {error_msg}")
+            
+            # Remove duplicates
+            unique_listing_keys = list(set(all_listing_keys))
+            
+            # Update database atomically
+            await self.db.db.keywords.update_one(
+                {"id": keyword_id},
+                {"$set": {
+                    "seen_listing_keys": unique_listing_keys,
+                    "baseline_status": "complete",
+                    "baseline_completed_ts": datetime.utcnow(),
+                    "baseline_pages_scanned": {p: r.get("pages_scanned", 0) for p, r in provider_results.items() if "error" not in r},
+                    "baseline_items_collected": {p: r.get("items_collected", 0) for p, r in provider_results.items() if "error" not in r},
+                    "baseline_errors": {p: r["error"] for p, r in provider_results.items() if "error" in r},
+                    "updated_at": datetime.utcnow()
+                }}
+            )
+            
+            logger.info(f"Reseed completed: {len(unique_listing_keys)} unique listing keys")
+            
+            return {
+                "success": True,
+                "unique_keys": len(unique_listing_keys),
+                "provider_results": provider_results
+            }
+            
+        except Exception as e:
+            # Mark as error
+            await self.db.db.keywords.update_one(
+                {"id": keyword_id},
+                {"$set": {
+                    "baseline_status": "error",
+                    "baseline_errors": {"reseed": str(e)[:400]},
+                    "updated_at": datetime.utcnow()
+                }}
+            )
+            raise
+
     async def full_baseline_seed(self, keyword_text: str, keyword_id: str) -> tuple[List[Listing], dict]:
         """Perform full baseline crawl with proper state machine
         
