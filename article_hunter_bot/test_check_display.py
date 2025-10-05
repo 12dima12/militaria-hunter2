@@ -36,8 +36,8 @@ async def demo_check_display():
     await db_manager.initialize()
     
     search_service = SearchService(db_manager)
-    notification_service = NotificationService()
-    scheduler = PollingScheduler(db_manager, search_service, notification_service)
+    # Mock scheduler for health check (we don't need real notifications)
+    scheduler = None
     
     print("📋 Enhanced /list Command Telemetry Display Demo")
     print("=" * 55)
