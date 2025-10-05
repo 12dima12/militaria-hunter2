@@ -38,7 +38,8 @@ class SearchService:
             result = await provider.search(
                 keyword=keyword.original_keyword,
                 since_ts=keyword.since_ts,
-                crawl_all=False  # Polling mode - page 1 only
+                crawl_all=False,  # Polling mode - first few pages only
+                max_pages_override=5  # Check first 5 pages to catch new items
             )
             
             # Build canonical listing keys and deduplicate in-run
