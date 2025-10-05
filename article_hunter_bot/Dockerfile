@@ -21,4 +21,4 @@ COPY . .
 RUN mkdir -p logs
 
 # Run the bot
-CMD ["python", "main.py"]
+CMD ["python", "simple_bot.py"]
