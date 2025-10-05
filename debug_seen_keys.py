@@ -30,13 +30,16 @@ async def debug_seen_keys():
         
         print(f"Total active keywords found: {len(keywords)}")
         
-        # Find keywords with the normalized names from the logs
+        # Search for keywords by exact attributes from logs
         target_keywords = []
         for keyword in keywords:
+            print(f"Found keyword: {keyword.normalized_keyword}, since_ts: {keyword.since_ts}, user_id: {keyword.user_id}, active: {keyword.is_active}")
             if keyword.normalized_keyword in ['orden', 'sammlung', 'abzeichen']:
                 target_keywords.append(keyword)
         
-        for keyword in target_keywords:  # Check target keywords
+        print(f"\nTarget keywords matching log names: {len(target_keywords)}")
+        
+        for keyword in target_keywords[:5]:  # Check target keywords
             print(f"Keyword: {keyword.original_keyword}")
             print(f"  User ID: {keyword.user_id}")
             print(f"  Since TS: {keyword.since_ts}")
