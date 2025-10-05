@@ -36,8 +36,15 @@ async def demo_check_display():
     await db_manager.initialize()
     
     search_service = SearchService(db_manager)
-    # Mock scheduler for health check (we don't need real notifications)
-    scheduler = None
+    
+    # Mock scheduler for health check
+    class MockScheduler:
+        def scheduler_has_job(self, job_id):
+            return True  # Assume all jobs exist for demo
+        def get_job_next_run(self, job_id):
+            return datetime.utcnow()
+    
+    scheduler = MockScheduler()
     
     print("📋 Enhanced /list Command Telemetry Display Demo")
     print("=" * 55)
