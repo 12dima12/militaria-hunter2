@@ -231,33 +231,27 @@ class SearchService:
     
     async def diagnose_keyword(self, keyword: Keyword, scheduler) -> str:
         """Comprehensive keyword diagnosis with German output"""
-        from zoneinfo import ZoneInfo
         
-        def berlin(dt_utc: datetime | None) -> str:
-            if not dt_utc:
-                return "/"
-            return dt_utc.astimezone(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M") + " Uhr"
-        
-        diagnosis_lines = [f"🔍 Diagnose für \"{keyword.original_keyword}\""]
+        diagnosis_lines = [f"🔍 {b('Diagnose für')} {keyword.original_keyword}", ""]
         
         # 1. Baseline state analysis
-        baseline_info = f"• Baseline: {keyword.baseline_status}"
+        baseline_parts = [f"Baseline: {keyword.baseline_status}"]
         
         if keyword.baseline_pages_scanned:
             total_pages = sum(keyword.baseline_pages_scanned.values())
-            baseline_info += f" — Seiten: {total_pages}"
+            baseline_parts.append(f"Seiten: {total_pages}")
         
         if keyword.baseline_items_collected:
             total_items = sum(keyword.baseline_items_collected.values())
-            baseline_info += f" — Items: {total_items}"
+            baseline_parts.append(f"Items: {total_items}")
         
         if keyword.baseline_errors:
             first_error = next(iter(keyword.baseline_errors.values()))
-            baseline_info += f" — Fehler: {first_error[:50]}"
+            baseline_parts.append(f"Fehler: {first_error[:50]}")
         else:
-            baseline_info += " — Fehler: /"
+            baseline_parts.append("Fehler: /")
         
-        diagnosis_lines.append(baseline_info)
+        diagnosis_lines.append(f"• {' — '.join(baseline_parts)}")
         
         # 2. Scheduler analysis
         job_id = f"keyword_{keyword.id}"
@@ -265,12 +259,13 @@ class SearchService:
         
         if has_job:
             next_run = scheduler.get_job_next_run(job_id)
-            next_run_str = berlin(next_run) if next_run else "unbekannt"
+            next_run_str = fmt_ts_de(next_run) if next_run else "unbekannt"
             scheduler_info = f"• Scheduler: vorhanden — Nächster Lauf: {next_run_str}"
         else:
             scheduler_info = "• Scheduler: ❌ FEHLT"
         
         diagnosis_lines.append(scheduler_info)
+        diagnosis_lines.append("")
         
         # 3. Provider dry-run probe
         provider_results = {}
@@ -317,6 +312,8 @@ class SearchService:
             diagnosis_lines.append(provider_info)
         
         # 4. Overall assessment
+        diagnosis_lines.append("")
+        
         if keyword.baseline_status == "complete" and has_job:
             if any(pr["ok"] for pr in provider_results.values()):
                 assessment = "⇒ Status: Technisch gesund. Falls Probleme: prüfen Sie Netzwerk oder Anbieter-Änderungen."
@@ -340,7 +337,7 @@ class SearchService:
             "provider_probe": provider_results
         })
         
-        return "\n".join(diagnosis_lines)
+        return br_join(diagnosis_lines)
     
     async def full_baseline_seed(self, keyword_text: str, keyword_id: str) -> tuple[List[Listing], dict]:
         """Perform full baseline crawl with proper state machine
