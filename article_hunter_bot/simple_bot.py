@@ -648,13 +648,16 @@ async def clear_my_keywords_confirm(callback: CallbackQuery):
         "keyword_ids_targeted": kw_ids
     })
 
-    await callback.message.edit_text(
-        f"🧹 Bereinigung abgeschlossen.\n"
-        f"• Keywords: {n_kw}\n"
-        f"• Gestoppte Jobs: {stopped}\n"
-        f"• Keyword-Treffer: {n_hits}\n"
+    result_text = br_join([
+        "🧹 Bereinigung abgeschlossen.",
+        "",
+        f"• Keywords: {n_kw}",
+        f"• Gestoppte Jobs: {stopped}",
+        f"• Keyword-Treffer: {n_hits}",
         f"• Benachrichtigungen: {n_notifs}"
-    )
+    ])
+    await callback.message.edit_text(result_text, parse_mode="HTML")
+    logger.info({"event": "send_text", "len": len(result_text), "preview": result_text[:120].replace("\n", "⏎")})
     await callback.answer()
 
 async def clear_data_confirm(callback: CallbackQuery):
