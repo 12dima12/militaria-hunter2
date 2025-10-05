@@ -90,85 +90,51 @@ class SearchService:
                 "window_size": poll_window
             })
             
-            # Collect all items from specified pages
-            all_items = []
-            pages_scanned = 0
+            # Use provider's built-in crawl_all mode to scan all available pages efficiently
+            max_pages_to_scan = min(len(pages_to_scan), MAX_PAGES_PER_CYCLE)
+            
+            result = await provider.search(
+                keyword=keyword.original_keyword,
+                since_ts=keyword.since_ts,
+                crawl_all=True,  # Scan ALL pages to prevent missed items
+                max_pages_override=max_pages_to_scan
+            )
+            
+            pages_scanned = result.pages_scanned or 0
+            all_items = result.items
             unseen_candidates = 0
             pushed_count = 0
             absorbed_count = 0
-            consecutive_empty_pages = 0
             
-            for page_index in pages_to_scan:
-                try:
-                    # Search single page
-                    result = await provider.search(
-                        keyword=keyword.original_keyword,
-                        since_ts=keyword.since_ts,
-                        mode="poll",
-                        poll_pages=1,
-                        page_start=page_index
-                    )
-                    
-                    pages_scanned += 1
-                    
-                    if not result.items:
-                        consecutive_empty_pages += 1
-                        logger.info({
-                            "event": "m321_page",
-                            "q": keyword.normalized_keyword,
-                            "page_index": page_index,
-                            "items_on_page": 0,
-                            "consecutive_empty": consecutive_empty_pages
-                        })
-                        
-                        # Early stop after 5 consecutive empty pages (if rotating window completed)
-                        if consecutive_empty_pages >= 5 and poll_mode == "rotate":
-                            logger.info(f"Early stop: 5 consecutive empty pages starting at page {page_index - 4}")
-                            break
-                        continue
-                    else:
-                        consecutive_empty_pages = 0
-                    
-                    # Process items from this page
-                    page_unseen = 0
-                    duplicates_on_page = 0
-                    
-                    for item in result.items:
-                        listing_key = self._build_canonical_listing_key(item)
-                        
-                        # Skip duplicates within this run
-                        if listing_key in seen_this_run:
-                            duplicates_on_page += 1
-                            continue
-                        
-                        seen_this_run.add(listing_key)
-                        
-                        # Update item with canonical key for consistency
-                        item.platform_id = listing_key.split(':', 1)[1]  # Extract ID part
-                        all_items.append(item)
-                        
-                        # Track unseen candidates (not in baseline)
-                        if listing_key not in keyword.seen_listing_keys:
-                            page_unseen += 1
-                    
-                    unseen_candidates += page_unseen
-                    
-                    logger.info({
-                        "event": "m321_page",
-                        "q": keyword.normalized_keyword,
-                        "page_index": page_index,
-                        "items_on_page": len(result.items),
-                        "duplicates_on_page": duplicates_on_page,
-                        "unseen_on_page": page_unseen,
-                        "unique_total": len(all_items)
-                    })
-                    
-                    # Add throttling between pages (200-600ms jitter as specified)
-                    await asyncio.sleep(0.2 + (0.4 * (page_index % 3) / 3))
-                    
-                except Exception as e:
-                    logger.error(f"Error fetching page {page_index}: {e}")
+            # Process and deduplicate all items
+            unique_items = []
+            for item in all_items:
+                listing_key = self._build_canonical_listing_key(item)
+                
+                # Skip duplicates within this run
+                if listing_key in seen_this_run:
                     continue
+                
+                seen_this_run.add(listing_key)
+                
+                # Update item with canonical key for consistency  
+                item.platform_id = listing_key.split(':', 1)[1]  # Extract ID part
+                unique_items.append(item)
+                
+                # Track unseen candidates (not in baseline)
+                if listing_key not in keyword.seen_listing_keys:
+                    unseen_candidates += 1
+            
+            all_items = unique_items
+            
+            logger.info({
+                "event": "deep_scan_complete",
+                "q": keyword.normalized_keyword,
+                "pages_scanned": pages_scanned,
+                "total_items_found": len(all_items),
+                "unseen_candidates": unseen_candidates,
+                "max_pages_allowed": max_pages_to_scan
+            })
             
             # Enrich unseen items with posted_ts/price
             unseen_items = []
