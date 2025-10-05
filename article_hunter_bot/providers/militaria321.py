@@ -168,13 +168,19 @@ class Militaria321Provider(BaseProvider):
                         total_count = self._extract_total_count(soup, len(page_items))
                         logger.info(f"Estimated total count: {total_count}")
                     
+                    # Update last_page_index
+                    last_page_index = page_index
+                    
                     # Check if we should continue to next page
-                    if not crawl_all:
-                        # For polling, only check first page
+                    if mode == "poll" and poll_pages == 1:
+                        # Single page mode - stop after this page
+                        break
+                    elif not crawl_all and not max_pages_override:
+                        # Traditional polling mode - stop after first few pages
                         break
                     
                     # For crawl_all, use proper next-page detection
-                    if not self._has_next_page(soup, startat):
+                    if crawl_all and not self._has_next_page(soup, startat):
                         logger.info(f"No next page detected after page {page_index} (startat={startat})")
                         break
                     
