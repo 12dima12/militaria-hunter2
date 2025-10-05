@@ -408,7 +408,9 @@ async def cmd_admin_clear(message: Message):
     # Parse command to ensure it's "clear"
     args = message.text.split()
     if len(args) < 2 or args[1].lower() != "clear":
-        await message.answer("❓ Verwenden Sie `/admin clear` zum Bereinigen der Datenbank.")
+        text = f"❓ Verwenden Sie {code('/admin clear')} zum Bereinigen der Datenbank."
+        await message.answer(text, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(text), "preview": text[:120].replace("\n", "⏎")})
         return
     
     user = await ensure_user(message.from_user)
@@ -421,12 +423,12 @@ async def cmd_admin_clear(message: Message):
         ]
     ])
     
-    await message.answer(
-        "⚠️ Achtung: Dies löscht *alle gespeicherten Angebote und Benachrichtigungen* für alle Nutzer. "
-        "Nutzer & Keywords bleiben erhalten. Fortfahren?",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
+    confirm_text = br_join([
+        "⚠️ Achtung: Dies löscht alle gespeicherten Angebote und Benachrichtigungen für alle Nutzer.",
+        "Nutzer & Keywords bleiben erhalten. Fortfahren?"
+    ])
+    await message.answer(confirm_text, reply_markup=keyboard, parse_mode="HTML")
+    logger.info({"event": "send_text", "len": len(confirm_text), "preview": confirm_text[:120].replace("\n", "⏎")})
 
 async def cmd_clear(message: Message):
     """Handle /clear (user-specific) and /clear data (global wipe alias)"""
