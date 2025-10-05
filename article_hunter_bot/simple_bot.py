@@ -392,8 +392,8 @@ Plattformen: {", ".join(keyword.platforms)}"""
         logger.error(f"Error in /list command: {e}")
         await message.answer("❌ Fehler beim Laden der Überwachungen.")
 
-async def kw_health_retest(callback: CallbackQuery):
-    """Handle keyword health retest callback"""
+async def kw_diagnosis(callback: CallbackQuery):
+    """Handle keyword diagnosis callback"""
     try:
         keyword_id = callback.data.split(":", 1)[1]
         user = await ensure_user(callback.from_user)
@@ -411,37 +411,23 @@ async def kw_health_retest(callback: CallbackQuery):
             return
         
         # Show progress
-        await callback.answer(f"⏳ Prüfe \"{keyword.original_keyword}\"…")
+        await callback.answer(f"🔍 Diagnose läuft für \"{keyword.original_keyword}\"...")
         
         try:
-            # Run search with dry_run=True (no notifications)
-            await search_service.search_keyword(keyword, dry_run=True)
+            # Run comprehensive diagnosis
+            diagnosis_report = await search_service.diagnose_keyword(keyword, polling_scheduler)
             
-            # Log retest
-            logger.info({
-                "event": "kw_retest",
-                "keyword_id": keyword.id,
-                "result": "success",
-                "error": None
-            })
-            
-            await callback.message.reply("✅ Lauf erfolgreich aktualisiert.")
+            # Send diagnosis report
+            await callback.message.reply(diagnosis_report)
             
         except Exception as e:
-            # Log retest error
-            logger.info({
-                "event": "kw_retest", 
-                "keyword_id": keyword.id,
-                "result": "error",
-                "error": str(e)[:200]
-            })
-            
+            logger.error(f"Error in diagnosis: {e}")
             error_msg = str(e)[:100] + "..." if len(str(e)) > 100 else str(e)
-            await callback.message.reply(f"❌ Fehler beim Prüfen: {error_msg}")
+            await callback.message.reply(f"❌ Fehler bei der Diagnose: {error_msg}")
         
     except Exception as e:
-        logger.error(f"Error in kw_health_retest: {e}")
-        await callback.answer("❌ Fehler beim Testen.", show_alert=True)
+        logger.error(f"Error in kw_diagnosis: {e}")
+        await callback.answer("❌ Fehler bei der Diagnose.", show_alert=True)
 
 async def kw_delete_callback(callback: CallbackQuery):
     """Handle keyword deletion callback - reuse existing delete flow"""
