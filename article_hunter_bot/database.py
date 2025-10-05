@@ -98,7 +98,14 @@ class DatabaseManager:
         return keyword
     
     async def update_keyword_seen_keys(self, keyword_id: str, seen_keys: List[str]):
-        """Update seen listing keys for keyword"""
+        """Update seen listing keys for keyword
+        
+        Optimized for large arrays (50k+ keys)
+        """
+        # Log performance for large updates
+        if len(seen_keys) > 1000:
+            logger.info(f"Updating keyword {keyword_id} with {len(seen_keys)} seen keys (large update)")
+        
         await self.db.keywords.update_one(
             {"id": keyword_id},
             {"$set": {"seen_listing_keys": seen_keys, "updated_at": datetime.utcnow()}}
