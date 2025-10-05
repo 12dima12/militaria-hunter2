@@ -90,7 +90,9 @@ async def cmd_search(message: Message):
             user_id=user.id,
             original_keyword=keyword_text,
             normalized_keyword=normalized,
-            since_ts=datetime.utcnow()  # Set baseline timestamp
+            since_ts=datetime.utcnow(),  # Set baseline timestamp
+            baseline_status="pending",
+            platforms=["militaria321.com"]
         )
         await db_manager.create_keyword(keyword)
         
