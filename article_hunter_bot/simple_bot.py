@@ -33,7 +33,13 @@ logger = logging.getLogger(__name__)
 db_manager = None
 search_service = None
 notification_service = None
-polling_scheduler = None
+polling_scheduler = None  # Will be set by main application
+
+def berlin(dt_utc: datetime | None) -> str:
+    """Format datetime in Berlin timezone"""
+    if not dt_utc:
+        return "/"
+    return dt_utc.astimezone(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M") + " Uhr"
 
 async def ensure_user(telegram_user) -> User:
     """Ensure user exists in database"""
