@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime
+from typing import Optional
 from dotenv import load_dotenv
 
 from aiogram import Bot, Dispatcher, Router, types, F
