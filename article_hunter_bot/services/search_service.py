@@ -375,7 +375,6 @@ class SearchService:
                 return "/"
             return dt_utc.astimezone(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M") + " Uhr"
         
-        INTERVAL_SEC = 60
         STALE_WARN_SEC = 180  # 3 minutes
         ERR_THRESHOLD = 3
         
