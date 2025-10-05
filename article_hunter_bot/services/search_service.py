@@ -220,6 +220,119 @@ class SearchService:
         # Rule 6: Healthy
         return "✅ Läuft", "Letzte Prüfung erfolgreich"
     
+    async def diagnose_keyword(self, keyword: Keyword, scheduler) -> str:
+        """Comprehensive keyword diagnosis with German output"""
+        from zoneinfo import ZoneInfo
+        
+        def berlin(dt_utc: datetime | None) -> str:
+            if not dt_utc:
+                return "/"
+            return dt_utc.astimezone(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M") + " Uhr"
+        
+        diagnosis_lines = [f"🔍 Diagnose für „{keyword.original_keyword}""]
+        
+        # 1. Baseline state analysis
+        baseline_info = f"• Baseline: {keyword.baseline_status}"
+        
+        if keyword.baseline_pages_scanned:
+            total_pages = sum(keyword.baseline_pages_scanned.values())
+            baseline_info += f" — Seiten: {total_pages}"
+        
+        if keyword.baseline_items_collected:
+            total_items = sum(keyword.baseline_items_collected.values())
+            baseline_info += f" — Items: {total_items}"
+        
+        if keyword.baseline_errors:
+            first_error = next(iter(keyword.baseline_errors.values()))
+            baseline_info += f" — Fehler: {first_error[:50]}"
+        else:
+            baseline_info += " — Fehler: /"
+        
+        diagnosis_lines.append(baseline_info)
+        
+        # 2. Scheduler analysis
+        job_id = f"keyword_{keyword.id}"
+        has_job = scheduler.scheduler_has_job(job_id)
+        
+        if has_job:
+            next_run = scheduler.get_job_next_run(job_id)
+            next_run_str = berlin(next_run) if next_run else "unbekannt"
+            scheduler_info = f"• Scheduler: vorhanden — Nächster Lauf: {next_run_str}"
+        else:
+            scheduler_info = "• Scheduler: ❌ FEHLT"
+        
+        diagnosis_lines.append(scheduler_info)
+        
+        # 3. Provider dry-run probe
+        provider_results = {}
+        
+        for platform_name, provider in self.providers.items():
+            try:
+                # Probe first page only for diagnosis
+                result = await provider.search(
+                    keyword=keyword.original_keyword,
+                    crawl_all=False  # Just first page for probe
+                )
+                
+                # Count auction links by checking if items have platform_ids
+                auctions_count = len([item for item in result.items if item.platform_id])
+                parsed_count = len(result.items)
+                
+                # Check if query is reflected (basic check)
+                query_reflected = parsed_count > 0  # If we got results, query probably worked
+                
+                provider_results[platform_name] = {
+                    "ok": True,
+                    "auctions": auctions_count, 
+                    "parsed": parsed_count,
+                    "query_reflected": query_reflected,
+                    "reason": None
+                }
+                
+                provider_info = (f"• Provider ({platform_name[:4]}): Seite 1 OK — "
+                               f"Auktion-Links: {auctions_count} — Parser: {parsed_count} — "
+                               f"Query reflektiert: {'ja' if query_reflected else 'nein'}")
+                
+            except Exception as e:
+                error_reason = str(e)[:100]
+                provider_results[platform_name] = {
+                    "ok": False,
+                    "auctions": 0,
+                    "parsed": 0,
+                    "query_reflected": False,
+                    "reason": error_reason
+                }
+                
+                provider_info = f"• Provider ({platform_name[:4]}): ❌ FEHLER — {error_reason}"
+            
+            diagnosis_lines.append(provider_info)
+        
+        # 4. Overall assessment
+        if keyword.baseline_status == "complete" and has_job:
+            if any(pr["ok"] for pr in provider_results.values()):
+                assessment = "⇒ Status: Technisch gesund. Falls Probleme: prüfen Sie Netzwerk oder Anbieter-Änderungen."
+            else:
+                assessment = "⇒ Status: Provider-Probleme erkannt. Prüfen Sie Internetverbindung."
+        elif keyword.baseline_status != "complete":
+            assessment = f"⇒ Status: Baseline unvollständig ({keyword.baseline_status}). Warten oder /search erneut ausführen."
+        elif not has_job:
+            assessment = "⇒ Status: Scheduler-Job fehlt. Bot-Neustart erforderlich."
+        else:
+            assessment = "⇒ Status: Gemischte Probleme erkannt."
+        
+        diagnosis_lines.append(assessment)
+        
+        # Log diagnosis
+        logger.info({
+            "event": "kw_diagnose",
+            "keyword_id": keyword.id,
+            "baseline": keyword.baseline_status,
+            "has_job": has_job,
+            "provider_probe": provider_results
+        })
+        
+        return "\n".join(diagnosis_lines)
+    
     async def full_baseline_seed(self, keyword_text: str, keyword_id: str) -> List[Listing]:
         """Perform full baseline crawl with proper state machine
         
