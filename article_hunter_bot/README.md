@@ -120,7 +120,7 @@ Poll: Modus: rotate — Seiten: ~45 — Fenster: 12-16
 ## Commands
 
 ### `/search <keyword>`
-Create a subscription for `<keyword>`. Runs full baseline crawl across ALL pages on militaria321.com, seeds seen items (no initial notifications), then starts 60-second polling.
+Create a subscription for `<keyword>`. Runs full baseline crawl across ALL pages on militaria321.com, seeds seen items (no initial notifications), then starts deep pagination polling.
 
 **Example:**
 ```
@@ -131,7 +131,29 @@ Create a subscription for `<keyword>`. Runs full baseline crawl across ALL pages
 ```
 Suche eingerichtet: "Wehrmacht Helm"
 ✅ Baseline abgeschlossen – Ich benachrichtige Sie künftig nur bei neuen Angeboten.
-⏱️ Frequenz: Alle 60 Sekunden
+⏱️ Frequenz: Alle 60 Sekunden mit Deep-Pagination
+```
+
+### `/list`
+Show all active keyword subscriptions with health status and polling telemetry.
+
+**Example:**
+```
+/list
+```
+
+**Response:**
+```
+Ihre aktiven Überwachungen:
+
+📝 Wehrmacht Helm
+Status: ✅ Läuft — Letzte Prüfung erfolgreich  
+Letzte Prüfung: 05.10.2025 16:19 Uhr — Letzter Erfolg: 05.10.2025 16:19 Uhr
+Baseline: complete
+Plattformen: militaria321.com
+Poll: Modus: rotate — Seiten: ~45 — Fenster: 12-16
+
+[🔍 Diagnostik] [🗑️ Löschen]
 ```
 
 ### `/check <keyword>`
@@ -160,6 +182,12 @@ Remove the subscription and stop scheduled polling.
 ```
 Überwachung für "Wehrmacht Helm" wurde gelöscht.
 ```
+
+### `/clear`
+Delete all your keywords with two-step confirmation.
+
+### `/hilfe`
+Show comprehensive help message with all commands.
 
 ## Notification Format
 
