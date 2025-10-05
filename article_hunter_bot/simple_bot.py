@@ -303,22 +303,32 @@ async def cmd_admin_clear(message: Message):
     )
 
 async def cmd_clear(message: Message):
-    """Handle /clear command - alias for admin clear"""
+    """Handle /clear (user-specific) and /clear data (global wipe alias)"""
     user = await ensure_user(message.from_user)
     
-    # Create confirmation keyboard
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="✅ Ja, alles löschen", callback_data="admin_clear_confirm"),
-            InlineKeyboardButton(text="❌ Abbrechen", callback_data="admin_clear_cancel")
-        ]
-    ])
+    text = (message.text or "").strip().lower()
     
+    if text.endswith(" data"):
+        # Optional: legacy/global wipe confirm
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Ja, alle Daten löschen", callback_data="clear_data_confirm"),
+            InlineKeyboardButton(text="❌ Abbrechen", callback_data="clear_cancel"),
+        ]])
+        await message.answer(
+            "⚠️ Achtung: Dies löscht *alle gespeicherten Angebote und Benachrichtigungen* für alle Nutzer. "
+            "Nutzer & Keywords bleiben erhalten. Fortfahren?",
+            reply_markup=kb, parse_mode="Markdown"
+        )
+        return
+
+    # Default: delete MY keywords
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✅ Ja, alle meine Suchbegriffe löschen", callback_data="clear_my_keywords_confirm"),
+        InlineKeyboardButton(text="❌ Abbrechen", callback_data="clear_cancel"),
+    ]])
     await message.answer(
-        "⚠️ Achtung: Dies löscht *alle gespeicherten Angebote und Benachrichtigungen* für alle Nutzer. "
-        "Nutzer & Keywords bleiben erhalten. Fortfahren?",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
+        "Möchten Sie wirklich *alle Ihre Suchbegriffe* löschen? Dies stoppt auch die Hintergrundüberwachung.",
+        reply_markup=kb, parse_mode="Markdown"
     )
 
 async def cmd_list(message: Message):
