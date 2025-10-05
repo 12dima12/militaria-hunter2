@@ -243,9 +243,9 @@ async def cmd_search(message: Message):
         
     except Exception as e:
         logger.error(f"Error creating search subscription: {e}")
-        await status_msg.edit_text(
-            "❌ Fehler beim Einrichten der Suche. Bitte versuchen Sie es erneut."
-        )
+        error_text = "❌ Fehler beim Einrichten der Suche. Bitte versuchen Sie es erneut."
+        await status_msg.edit_text(error_text, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(error_text), "preview": error_text[:120].replace("\n", "⏎")})
 
 async def cmd_check(message: Message):
     """Handle /check <keyword> command"""
