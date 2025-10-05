@@ -32,7 +32,8 @@ def stop_keyword_job(job_id: str) -> bool:
             return False
         scheduler.remove_job(job_id)
         return True
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Error stopping job {job_id}: {e}")
         return False
 
 
