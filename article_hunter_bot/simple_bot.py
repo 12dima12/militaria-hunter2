@@ -21,6 +21,7 @@ from services.search_service import SearchService
 from services.notification_service import NotificationService
 from scheduler import PollingScheduler, stop_keyword_job
 from zoneinfo import ZoneInfo
+from providers.militaria321 import Militaria321Provider
 
 # Load environment
 load_dotenv()
