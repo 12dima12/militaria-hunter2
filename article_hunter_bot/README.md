@@ -31,6 +31,15 @@ A sophisticated Telegram bot that monitors militaria321.com for new listings mat
    TELEGRAM_BOT_TOKEN=your_bot_token_here
    MONGO_URL=mongodb://mongo:27017
    DB_NAME=article_hunter
+   
+   # Deep Pagination Configuration (Optional)
+   POLL_MODE=rotate              # "full" or "rotate"
+   PRIMARY_PAGES=1               # Always scan these front pages
+   POLL_WINDOW=5                 # Rotating window size
+   MAX_PAGES_PER_CYCLE=40        # Hard limit on pages per cycle
+   DETAIL_CONCURRENCY=4          # Max concurrent detail page fetches
+   GRACE_MINUTES=60              # Grace period for items without timestamp
+   POLL_INTERVAL_SECONDS=60      # Polling frequency
    ```
 
 3. **Run with Docker Compose:**
