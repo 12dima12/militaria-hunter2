@@ -614,7 +614,9 @@ async def clear_my_keywords_confirm(callback: CallbackQuery):
     
     kw_ids = await db_manager.get_user_keyword_ids(user.id)
     if not kw_ids:
-        await callback.message.edit_text("Sie haben derzeit keine Suchbegriffe.")
+        text = "Sie haben derzeit keine Suchbegriffe."
+        await callback.message.edit_text(text, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(text), "preview": text[:120].replace("\n", "⏎")})
         await callback.answer()
         return
 
