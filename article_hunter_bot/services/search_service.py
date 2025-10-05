@@ -436,7 +436,7 @@ class SearchService:
             "errors": provider_errors
         })
         
-        return all_items
+        return all_items, last_item_meta
     
     async def full_recheck_crawl(self, keyword_text: str) -> dict:
         """Perform full re-scan for /check command
