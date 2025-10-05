@@ -472,11 +472,11 @@ class ClearCommandTester:
                 mock_user.id = "test_user_123"
                 mock_ensure_user.return_value = mock_user
                 
-                # Mock database operations
-                mock_db.get_user_keyword_ids.return_value = ["kw1", "kw2"]
-                mock_db.delete_keyword_hits_by_keyword_ids.return_value = 5
-                mock_db.delete_notifications_by_keyword_ids.return_value = 3
-                mock_db.delete_keywords_by_ids.return_value = 2
+                # Mock database operations as async functions
+                mock_db.get_user_keyword_ids = AsyncMock(return_value=["kw1", "kw2"])
+                mock_db.delete_keyword_hits_by_keyword_ids = AsyncMock(return_value=5)
+                mock_db.delete_notifications_by_keyword_ids = AsyncMock(return_value=3)
+                mock_db.delete_keywords_by_ids = AsyncMock(return_value=2)
                 
                 # Mock job stopping
                 mock_stop_job.return_value = True
@@ -494,11 +494,11 @@ class ClearCommandTester:
             global_callback = MockCallback("clear_data_confirm", 123456789)
             
             with patch('simple_bot.db_manager') as mock_db:
-                mock_db.admin_clear_products.return_value = {
+                mock_db.admin_clear_products = AsyncMock(return_value={
                     "listings": 100,
                     "keyword_hits": 50,
                     "notifications": 25
-                }
+                })
                 
                 await clear_data_confirm(global_callback)
                 
