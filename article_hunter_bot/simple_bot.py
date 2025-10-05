@@ -284,28 +284,64 @@ async def cmd_check(message: Message):
     logger.info({"event": "send_text", "len": len(check_text), "preview": check_text[:120].replace("\n", "⏎")})
     
     try:
-        # Perform full re-scan
-        results = await search_service.full_recheck_crawl(keyword_text)
+        # Perform manual backfill and verification
+        result = await search_service.manual_backfill_check(keyword_text, user.id)
         
-        # Format response with page/item counts per provider
-        response_lines = [f"Vollsuche abgeschlossen: {b(keyword_text)}", ""]
+        if result.get("error"):
+            error_text = f"❌ {result['error']}"
+            await status_msg.edit_text(error_text, parse_mode="HTML")
+            logger.info({"event": "send_text", "len": len(error_text), "preview": error_text[:120].replace("\n", "⏎")})
+            return
         
-        for platform_name in sorted(results.keys()):
-            result = results[platform_name]
-            if result.get("error"):
-                response_lines.append(f"• {b(platform_name)}: Fehler: {result['error']}")
+        # Format comprehensive backfill report
+        response_lines = [
+            f"🔍 {b('Manuelle Verifikation abgeschlossen')}: {b(keyword_text)}",
+            ""
+        ]
+        
+        # Basic statistics
+        response_lines.extend([
+            f"📊 {b('Suchergebnisse:')}",
+            f"• Plattform: {result['platform_name']}",
+            f"• Seiten durchsucht: {result['pages_scanned']}",
+            f"• Artikel gefunden: {result['total_count']}",
+            ""
+        ])
+        
+        # Backfill results
+        if result['backfilled'] > 0:
+            response_lines.extend([
+                f"🔄 {b('Nachbearbeitung (Backfill):')}",
+                f"• Unverarbeitete Artikel: {result['backfilled']}",
+                f"• Neue Benachrichtigungen: {result['pushed']}",
+                f"• Bereits bekannte Artikel: {result['absorbed']}",
+                ""
+            ])
+            
+            if result['pushed'] > 0:
+                response_lines.append(f"✅ {b(f'{result[\"pushed\"]} neue Artikel')} wurden nachträglich benachrichtigt!")
             else:
-                response_lines.append(
-                    f"• {b(platform_name)}: {result['pages_scanned']} Seiten, {result['total_count']} Produkte"
-                )
+                response_lines.append("ℹ️ Alle gefundenen Artikel waren bereits bekannt oder zu alt.")
+        else:
+            response_lines.extend([
+                f"✅ {b('Status: Vollständig synchron')}",
+                "Alle Artikel wurden bereits verarbeitet.",
+                "Keine Nachbearbeitung erforderlich."
+            ])
+        
+        response_lines.extend([
+            "",
+            f"💡 {i('Tipp: Verwenden Sie /list für Überwachungsstatus')}"
+        ])
         
         response_text = br_join(response_lines)
+        
         await status_msg.edit_text(response_text, parse_mode="HTML")
         logger.info({"event": "send_text", "len": len(response_text), "preview": response_text[:120].replace("\n", "⏎")})
         
     except Exception as e:
-        logger.error(f"Error performing check: {e}")
-        error_text = "❌ Fehler beim Durchsuchen. Bitte versuchen Sie es später erneut."
+        logger.error(f"Error in manual backfill check command: {e}")
+        error_text = f"❌ Fehler bei der manuellen Verifikation: {str(e)[:200]}"
         await status_msg.edit_text(error_text, parse_mode="HTML")
         logger.info({"event": "send_text", "len": len(error_text), "preview": error_text[:120].replace("\n", "⏎")})
 
