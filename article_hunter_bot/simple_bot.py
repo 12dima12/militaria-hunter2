@@ -542,12 +542,17 @@ async def main():
     router.message.register(cmd_search, Command("search"))
     router.message.register(cmd_check, Command("check"))
     router.message.register(cmd_delete, Command("delete"))
+    router.message.register(cmd_list, Command("list"))  # New list command
     
     # Admin clear handlers (public access)
     router.message.register(cmd_admin_clear, Command("admin"))
     router.message.register(cmd_clear, Command("clear"))  # Alias for convenience
     router.callback_query.register(admin_clear_confirm, F.data == "admin_clear_confirm")
     router.callback_query.register(admin_clear_cancel, F.data == "admin_clear_cancel")
+    
+    # List command callbacks
+    router.callback_query.register(kw_health_retest, F.data.startswith("kw_health_retest:"))
+    router.callback_query.register(kw_delete_callback, F.data.startswith("kw_del:"))
     
     # Callback handlers
     router.callback_query.register(handle_delete_keyword_callback, F.data.startswith("delete_keyword_"))
