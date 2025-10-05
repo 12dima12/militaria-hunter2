@@ -46,13 +46,29 @@ class PollingScheduler:
     async def _setup_existing_keywords(self):
         """Set up polling jobs for existing active keywords"""
         try:
-            # Get all users
-            # Note: This is a simplified approach. In production, you might want
-            # to batch this or use a more efficient query
+            logger.info("Setting up existing keyword jobs...")
             
-            # For now, we'll monitor keywords as they're created via /search
-            # The scheduler will add jobs when keywords are created
-            pass
+            # Get all users with active keywords
+            users_cursor = self.db.db.users.find({})
+            jobs_added = 0
+            
+            async for user in users_cursor:
+                # Get active keywords for this user
+                keywords_cursor = self.db.db.keywords.find({
+                    'user_id': user['id'], 
+                    'is_active': True
+                })
+                
+                async for keyword_doc in keywords_cursor:
+                    # Convert to Keyword object
+                    from models import Keyword
+                    keyword = Keyword(**keyword_doc)
+                    
+                    # Add polling job
+                    self.add_keyword_job(keyword, user['telegram_id'])
+                    jobs_added += 1
+            
+            logger.info(f"Restored {jobs_added} keyword polling jobs")
             
         except Exception as e:
             logger.error(f"Error setting up existing keywords: {e}")
