@@ -55,6 +55,10 @@ class Keyword(BaseModel):
     
     # Telemetry fields for health monitoring
     baseline_status: str = "pending"  # {"pending","running","partial","error","complete"}
+    baseline_started_ts: Optional[datetime] = None  # UTC
+    baseline_completed_ts: Optional[datetime] = None  # UTC
+    baseline_pages_scanned: dict = Field(default_factory=dict)  # platform → pages
+    baseline_items_collected: dict = Field(default_factory=dict)  # platform → items
     baseline_errors: dict = Field(default_factory=dict)  # provider → message
     last_checked: Optional[datetime] = None  # UTC
     last_success_ts: Optional[datetime] = None  # UTC
