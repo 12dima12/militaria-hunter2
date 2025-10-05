@@ -123,11 +123,10 @@ class Militaria321Provider(BaseProvider):
                     logger.info({
                         "event": "m321_page",
                         "q": keyword,
-                        "page": page_index,
-                        "startat": startat,
+                        "page_index": page_index,
                         "items_on_page": len(page_items),
                         "duplicates_on_page": duplicates_on_page,
-                        "unique_total": len(seen_ids),
+                        "total_matched_so_far": len(all_items) + len(matched_items),
                         "url": str(response.url)
                     })
                     
