@@ -157,10 +157,9 @@ async def cmd_search(message: Message):
     if existing:
         if existing.is_active:
             # Truly active keyword exists
-            await message.answer(
-                f"⚠️ Suchbegriff **'{existing.original_keyword}'** existiert bereits.",
-                parse_mode="Markdown"
-            )
+            text = f"⚠️ Suchbegriff {b(existing.original_keyword)} existiert bereits."
+            await message.answer(text, parse_mode="HTML")
+            logger.info({"event": "send_text", "len": len(text), "preview": text[:120].replace("\n", "⏎")})
             return
         else:
             # Inactive keyword exists - reactivate it
@@ -189,10 +188,9 @@ async def cmd_search(message: Message):
             if polling_scheduler:
                 polling_scheduler.add_keyword_job(existing, user.telegram_id)
             
-            await message.answer(
-                f"✅ Suchbegriff reaktiviert: **{existing.original_keyword}** – Baseline wird neu aufgebaut.",
-                parse_mode="Markdown"
-            )
+            text = f"✅ Suchbegriff reaktiviert: {b(existing.original_keyword)} – Baseline wird neu aufgebaut."
+            await message.answer(text, parse_mode="HTML")
+            logger.info({"event": "send_text", "len": len(text), "preview": text[:120].replace("\n", "⏎")})
             return
     
     # Show "searching" message
