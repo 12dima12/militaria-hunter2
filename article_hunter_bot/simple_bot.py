@@ -20,6 +20,7 @@ from models import User, Keyword
 from services.search_service import SearchService
 from services.notification_service import NotificationService
 from scheduler import PollingScheduler
+from zoneinfo import ZoneInfo
 
 # Load environment
 load_dotenv()
