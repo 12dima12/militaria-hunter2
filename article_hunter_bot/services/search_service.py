@@ -802,13 +802,21 @@ class SearchService:
             # Send notifications for genuinely new items found during backfill
             actual_pushed = 0
             if notifications_queued:
-                notification_service = NotificationService(self.db, None)  # No bot needed for sending
+                # Import here to avoid circular dependency
+                from simple_bot import notification_service as global_notification_service
+                
                 for item in notifications_queued:
                     try:
-                        success = await notification_service.send_notification(user_id, keyword, item)
-                        if success:
-                            actual_pushed += 1
+                        # Get user's telegram ID
+                        user = await self.db.get_user_by_id(user_id)
+                        if user:
+                            success = await global_notification_service.send_new_item_notification(
+                                user.telegram_id, keyword, item
+                            )
+                            if success:
+                                actual_pushed += 1
                     except Exception as e:
+                        listing_key = self._build_canonical_listing_key(item)
                         logger.error(f"Failed to send backfill notification for {listing_key}: {e}")
             
             # Store/update all listings in database for completeness
