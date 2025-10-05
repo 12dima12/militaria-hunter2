@@ -852,7 +852,7 @@ async def cmd_hilfe(message: Message):
         f"💡 {b('Tipps:')}",
         f"• Verwenden Sie {code('/list')}, um den Status Ihrer Überwachungen zu prüfen",
         f"• Mit {code('/check')} können Sie manuell nach neuen Artikeln suchen",
-        f"• Der Bot zeigt die Gesundheit jeder Überwachung an",
+        "• Der Bot zeigt die Gesundheit jeder Überwachung an",
         f"• Bei Problemen nutzen Sie die 🔍 Diagnostik-Funktion in {code('/list')}",
         "",
         f"🎯 {b('Developed by:')} Deep-Pagination Experte",
