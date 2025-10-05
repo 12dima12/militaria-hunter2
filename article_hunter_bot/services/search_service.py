@@ -113,6 +113,27 @@ class SearchService:
         
         except Exception as e:
             logger.error(f"Error searching {provider.platform_name}: {e}")
+            
+            # Update telemetry on error
+            now = datetime.utcnow()
+            keyword.last_checked = now
+            keyword.last_error_ts = now
+            keyword.consecutive_errors += 1
+            keyword.last_error_message = str(e)[:500]
+            
+            # Update in database
+            await self._update_keyword_telemetry(keyword)
+            return all_new_items
+        
+        # Update telemetry on success
+        now = datetime.utcnow()
+        keyword.last_checked = now
+        keyword.last_success_ts = now
+        keyword.consecutive_errors = 0
+        keyword.last_error_message = None
+        
+        # Update in database
+        await self._update_keyword_telemetry(keyword)
         
         return all_new_items
     
