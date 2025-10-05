@@ -220,58 +220,101 @@ class SearchService:
         # Rule 6: Healthy
         return "✅ Läuft", "Letzte Prüfung erfolgreich"
     
-    async def full_baseline_crawl(self, keyword_text: str, keyword_id: Optional[str] = None) -> List[Listing]:
-        """Perform full baseline crawl across ALL pages on militaria321.com
+    async def full_baseline_seed(self, keyword_text: str, keyword_id: str) -> List[Listing]:
+        """Perform full baseline crawl with proper state machine
         
-        Used for /search command to seed seen_listing_keys
+        Implements baseline_status transitions: pending → running → complete/partial/error
         """
-        # Update baseline status to running if keyword_id provided
-        if keyword_id:
-            await self.db.db.keywords.update_one(
-                {"id": keyword_id},
-                {"$set": {"baseline_status": "running", "baseline_errors": {}}}
-            )
+        now_utc = datetime.utcnow()
         
-        provider = self.providers["militaria321.com"]
+        # Start baseline: set status to running
+        await self.db.db.keywords.update_one(
+            {"id": keyword_id},
+            {"$set": {
+                "baseline_status": "running",
+                "baseline_started_ts": now_utc,
+                "baseline_errors": {},
+                "baseline_pages_scanned": {},
+                "baseline_items_collected": {}
+            }}
+        )
         
-        try:
-            # Crawl all pages
-            result = await provider.search(
-                keyword=keyword_text,
-                crawl_all=True  # Baseline mode - all pages
-            )
-            
-            # Update baseline status to complete if keyword_id provided
-            if keyword_id:
-                await self.db.db.keywords.update_one(
-                    {"id": keyword_id},
-                    {"$set": {
-                        "baseline_status": "complete",
-                        "baseline_errors": {},
-                        "last_success_ts": datetime.utcnow(),
-                        "consecutive_errors": 0
-                    }}
+        all_items = []
+        provider_results = {}
+        provider_errors = {}
+        
+        # Process each provider
+        for platform_name, provider in self.providers.items():
+            try:
+                logger.info(f"Starting baseline crawl for '{keyword_text}' on {platform_name}")
+                
+                # Crawl all pages for this provider
+                result = await provider.search(
+                    keyword=keyword_text,
+                    crawl_all=True  # Baseline mode - all pages
                 )
-            
-            logger.info(f"Baseline crawl for '{keyword_text}': {len(result.items)} items, {result.pages_scanned} pages")
-            return result.items
+                
+                provider_results[platform_name] = {
+                    "pages_scanned": result.pages_scanned or 0,
+                    "items_collected": len(result.items)
+                }
+                
+                all_items.extend(result.items)
+                
+                logger.info(f"Baseline crawl completed for {platform_name}: "
+                          f"{len(result.items)} items, {result.pages_scanned} pages")
+                
+            except Exception as e:
+                error_msg = str(e)[:400]
+                provider_errors[platform_name] = error_msg
+                logger.error(f"Error in baseline crawl for {platform_name}: {error_msg}")
         
-        except Exception as e:
-            logger.error(f"Error in baseline crawl: {e}")
-            
-            # Update baseline status to error if keyword_id provided
-            if keyword_id:
-                await self.db.db.keywords.update_one(
-                    {"id": keyword_id},
-                    {"$set": {
-                        "baseline_status": "error",
-                        "baseline_errors": {"militaria321.com": str(e)[:200]},
-                        "last_error_ts": datetime.utcnow(),
-                        "last_error_message": str(e)[:500]
-                    }}
-                )
-            
-            return []
+        # Determine final baseline status
+        now_utc = datetime.utcnow()
+        total_providers = len(self.providers)
+        successful_providers = len(provider_results)
+        
+        if successful_providers == total_providers:
+            final_status = "complete"
+        elif successful_providers > 0:
+            final_status = "partial" 
+        else:
+            final_status = "error"
+        
+        # Build update data
+        baseline_pages_scanned = {p: r["pages_scanned"] for p, r in provider_results.items()}
+        baseline_items_collected = {p: r["items_collected"] for p, r in provider_results.items()}
+        
+        # Update baseline completion
+        update_data = {
+            "baseline_status": final_status,
+            "baseline_completed_ts": now_utc,
+            "baseline_pages_scanned": baseline_pages_scanned,
+            "baseline_items_collected": baseline_items_collected,
+            "baseline_errors": provider_errors
+        }
+        
+        # Set success telemetry if any providers succeeded
+        if successful_providers > 0:
+            update_data.update({
+                "last_success_ts": now_utc,
+                "consecutive_errors": 0,
+                "last_error_message": None
+            })
+        
+        await self.db.db.keywords.update_one({"id": keyword_id}, {"$set": update_data})
+        
+        # Structured baseline result log
+        logger.info({
+            "event": "baseline_result",
+            "keyword_id": keyword_id,
+            "status": final_status,
+            "pages_scanned": baseline_pages_scanned,
+            "items_collected": baseline_items_collected,
+            "errors": provider_errors
+        })
+        
+        return all_items
     
     async def full_recheck_crawl(self, keyword_text: str) -> dict:
         """Perform full re-scan for /check command
