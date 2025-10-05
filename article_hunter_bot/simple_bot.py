@@ -369,7 +369,7 @@ Plattformen: {", ".join(keyword.platforms)}"""
             
             # Add inline buttons for this keyword
             buttons_row = [
-                InlineKeyboardButton(text="🔄 Jetzt prüfen", callback_data=f"kw_health_retest:{keyword.id}"),
+                InlineKeyboardButton(text="🔍 Diagnostik", callback_data=f"kw_diag:{keyword.id}"),
                 InlineKeyboardButton(text="🗑️ Löschen", callback_data=f"kw_del:{keyword.id}")
             ]
             keyboard_buttons.append(buttons_row)
