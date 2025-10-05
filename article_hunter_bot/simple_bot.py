@@ -311,6 +311,171 @@ async def cmd_clear(message: Message):
         parse_mode="Markdown"
     )
 
+async def cmd_list(message: Message):
+    """Handle /list command - show health/status of all active keywords"""
+    user = await ensure_user(message.from_user)
+    
+    try:
+        # Get active keywords for user
+        keywords = await db_manager.get_user_keywords(user.id, active_only=True)
+        
+        if not keywords:
+            await message.answer("Sie haben derzeit keine aktiven Überwachungen.")
+            return
+        
+        # Sort by created_at desc (newest first)
+        keywords.sort(key=lambda k: k.created_at, reverse=True)
+        
+        # Build message with health status
+        from zoneinfo import ZoneInfo
+        
+        def berlin(dt_utc: datetime | None) -> str:
+            if not dt_utc:
+                return "/"
+            return dt_utc.astimezone(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M") + " Uhr"
+        
+        message_lines = ["**Ihre aktiven Überwachungen:**\\n"]
+        keyboard_buttons = []
+        
+        now_utc = datetime.utcnow()
+        
+        for i, keyword in enumerate(keywords):
+            # Compute health status
+            status, reason = search_service.compute_keyword_health(keyword, now_utc, polling_scheduler)
+            
+            # Log health check
+            logger.info({
+                "event": "kw_health",
+                "keyword_id": keyword.id,
+                "status": status,
+                "reason": reason,
+                "consecutive_errors": keyword.consecutive_errors,
+                "has_job": polling_scheduler.scheduler_has_job(f"keyword_{keyword.id}"),
+                "baseline": keyword.baseline_status,
+                "last_success_ts": keyword.last_success_ts.isoformat() if keyword.last_success_ts else None
+            })
+            
+            # Build keyword entry
+            keyword_text = f"""📝 **{keyword.original_keyword}**
+Status: {status} — {reason}
+Letzte Prüfung: {berlin(keyword.last_checked)} — Letzter Erfolg: {berlin(keyword.last_success_ts)}
+Baseline: {keyword.baseline_status}
+Plattformen: {", ".join(keyword.platforms)}"""
+            
+            message_lines.append(keyword_text)
+            
+            # Add inline buttons for this keyword
+            buttons_row = [
+                InlineKeyboardButton(text="🔄 Jetzt prüfen", callback_data=f"kw_health_retest:{keyword.id}"),
+                InlineKeyboardButton(text="🗑️ Löschen", callback_data=f"kw_del:{keyword.id}")
+            ]
+            keyboard_buttons.append(buttons_row)
+        
+        # Create keyboard
+        keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+        
+        # Send message
+        full_message = "\\n\\n".join(message_lines)
+        await message.answer(full_message, reply_markup=keyboard, parse_mode="Markdown")
+        
+        # Log list render
+        logger.info({
+            "event": "list_render",
+            "user_id": user.id,
+            "count": len(keywords)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in /list command: {e}")
+        await message.answer("❌ Fehler beim Laden der Überwachungen.")
+
+async def kw_health_retest(callback: CallbackQuery):
+    """Handle keyword health retest callback"""
+    try:
+        keyword_id = callback.data.split(":", 1)[1]
+        user = await ensure_user(callback.from_user)
+        
+        # Find keyword
+        keywords = await db_manager.get_user_keywords(user.id, active_only=True)
+        keyword = None
+        for kw in keywords:
+            if kw.id == keyword_id:
+                keyword = kw
+                break
+        
+        if not keyword:
+            await callback.answer("❌ Suchbegriff nicht gefunden.", show_alert=True)
+            return
+        
+        # Show progress
+        await callback.answer(f"⏳ Prüfe \\"{keyword.original_keyword}\\"…")
+        
+        try:
+            # Run search with dry_run=True (no notifications)
+            await search_service.search_keyword(keyword, dry_run=True)
+            
+            # Log retest
+            logger.info({
+                "event": "kw_retest",
+                "keyword_id": keyword.id,
+                "result": "success",
+                "error": None
+            })
+            
+            await callback.message.reply("✅ Lauf erfolgreich aktualisiert.")
+            
+        except Exception as e:
+            # Log retest error
+            logger.info({
+                "event": "kw_retest", 
+                "keyword_id": keyword.id,
+                "result": "error",
+                "error": str(e)[:200]
+            })
+            
+            error_msg = str(e)[:100] + "..." if len(str(e)) > 100 else str(e)
+            await callback.message.reply(f"❌ Fehler beim Prüfen: {error_msg}")
+        
+    except Exception as e:
+        logger.error(f"Error in kw_health_retest: {e}")
+        await callback.answer("❌ Fehler beim Testen.", show_alert=True)
+
+async def kw_delete_callback(callback: CallbackQuery):
+    """Handle keyword deletion callback - reuse existing delete flow"""
+    try:
+        keyword_id = callback.data.split(":", 1)[1]
+        user = await ensure_user(callback.from_user)
+        
+        # Find keyword
+        keywords = await db_manager.get_user_keywords(user.id, active_only=True)
+        keyword = None
+        for kw in keywords:
+            if kw.id == keyword_id:
+                keyword = kw
+                break
+        
+        if not keyword:
+            await callback.answer("❌ Suchbegriff nicht gefunden.", show_alert=True)
+            return
+        
+        # Delete keyword and remove from scheduler
+        await db_manager.delete_keyword(keyword.id)
+        
+        if polling_scheduler:
+            polling_scheduler.remove_keyword_job(keyword.id)
+        
+        await callback.answer(f"✅ '{keyword.original_keyword}' gelöscht.", show_alert=True)
+        
+        # Optionally refresh the list or remove the buttons
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except Exception:
+            pass  # Message might be too old to edit
+            
+    except Exception as e:
+        logger.error(f"Error in kw_delete_callback: {e}")
+        await callback.answer("❌ Fehler beim Löschen.", show_alert=True)
+
 async def admin_clear_confirm(callback: CallbackQuery):
     """Handle admin clear confirmation"""
     try:
