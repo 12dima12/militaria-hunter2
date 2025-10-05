@@ -284,25 +284,26 @@ async def cmd_check(message: Message):
         results = await search_service.full_recheck_crawl(keyword_text)
         
         # Format response with page/item counts per provider
-        response_lines = [f"Vollsuche abgeschlossen: \"{keyword_text}\""]
+        response_lines = [f"Vollsuche abgeschlossen: {b(keyword_text)}", ""]
         
         for platform_name in sorted(results.keys()):
             result = results[platform_name]
             if result.get("error"):
-                response_lines.append(f"• **{platform_name}**: Fehler: {result['error']}")
+                response_lines.append(f"• {b(platform_name)}: Fehler: {result['error']}")
             else:
                 response_lines.append(
-                    f"• **{platform_name}**: {result['pages_scanned']} Seiten, {result['total_count']} Produkte"
+                    f"• {b(platform_name)}: {result['pages_scanned']} Seiten, {result['total_count']} Produkte"
                 )
         
-        response_text = "\\n".join(response_lines)
-        await status_msg.edit_text(response_text, parse_mode="Markdown")
+        response_text = br_join(response_lines)
+        await status_msg.edit_text(response_text, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(response_text), "preview": response_text[:120].replace("\n", "⏎")})
         
     except Exception as e:
         logger.error(f"Error performing check: {e}")
-        await status_msg.edit_text(
-            "❌ Fehler beim Durchsuchen. Bitte versuchen Sie es später erneut."
-        )
+        error_text = "❌ Fehler beim Durchsuchen. Bitte versuchen Sie es später erneut."
+        await status_msg.edit_text(error_text, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(error_text), "preview": error_text[:120].replace("\n", "⏎")})
 
 async def cmd_delete(message: Message):
     """Handle /delete <keyword> command"""
