@@ -47,7 +47,8 @@ async def debug_poll_flow():
         print(f"✓ Created test keyword with {len(test_keyword.seen_listing_keys)} seen keys")
         
         # 2. Reload from database to confirm it was saved
-        reloaded = await db_manager.get_keyword_by_id("debug_test_keyword")
+        doc = await db_manager.db.keywords.find_one({"id": "debug_test_keyword"})
+        reloaded = Keyword(**doc)
         print(f"✓ Reloaded keyword has {len(reloaded.seen_listing_keys)} seen keys")
         print(f"  First few keys: {reloaded.seen_listing_keys[:3]}")
         
@@ -57,7 +58,8 @@ async def debug_poll_flow():
         print(f"✓ Search returned {len(new_items)} new items")
         
         # 4. Check what happened to seen keys after search
-        final_keyword = await db_manager.get_keyword_by_id("debug_test_keyword")
+        doc = await db_manager.db.keywords.find_one({"id": "debug_test_keyword"})
+        final_keyword = Keyword(**doc)
         print(f"✓ Final keyword has {len(final_keyword.seen_listing_keys)} seen keys")
         
         # 5. Clean up
