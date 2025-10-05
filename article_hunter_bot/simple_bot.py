@@ -760,6 +760,71 @@ async def admin_clear_cancel(callback: CallbackQuery):
     logger.info({"event": "send_text", "len": len(text), "preview": text[:120].replace("\n", "⏎")})
     await callback.answer()
 
+async def cmd_hilfe(message: Message):
+    """Handle /hilfe command - show comprehensive help"""
+    user = await ensure_user(message.from_user)
+    
+    help_text = br_join([
+        f"🤖 {b('Article Hunter Bot - Hilfe')}",
+        "",
+        "Dieser Bot überwacht militaria321.com nach neuen Angeboten, die zu Ihren Suchbegriffen passen, und benachrichtigt Sie sofort.",
+        "",
+        f"📋 {b('Verfügbare Befehle:')}",
+        "",
+        f"🔍 {code('/search <suchbegriff>')}",
+        "Neue Überwachung einrichten. Der Bot durchsucht alle Seiten, speichert vorhandene Artikel und startet dann die 60-Sekunden-Überwachung mit Deep-Pagination.",
+        f"Beispiel: {code('/search Wehrmacht Helm')}",
+        "",
+        f"📋 {code('/list')}",
+        "Zeigt alle aktiven Überwachungen mit Gesundheitsstatus, Seitenzahlen und Deep-Pagination-Telemetrie an.",
+        "",
+        f"🔄 {code('/check <suchbegriff>')}",
+        "Manuelle Vollsuche durchführen. Crawlt alle Seiten neu und zeigt Statistiken an, ohne Benachrichtigungen zu senden.",
+        f"Beispiel: {code('/check Wehrmacht Helm')}",
+        "",
+        f"🗑️ {code('/delete <suchbegriff>')}",
+        "Überwachung für einen Suchbegriff beenden und aus der Datenbank entfernen.",
+        f"Beispiel: {code('/delete Wehrmacht Helm')}",
+        "",
+        f"🧹 {code('/clear')}",
+        "Alle Ihre Suchbegriffe löschen (mit Sicherheitsabfrage).",
+        "",
+        f"❓ {code('/hilfe')}",
+        "Diese Hilfe anzeigen.",
+        "",
+        f"⚙️ {b('Deep-Pagination System:')}",
+        "",
+        "Der Bot löst das Problem, dass militaria321.com nach Auktionsende sortiert und neue Artikel auf hinteren Seiten erscheinen können:",
+        "",
+        f"• {b('Rotierender Modus (Standard):')} Scannt Hauptseiten + rotierendes Fenster",
+        f"• {b('Vollständiger Modus:')} Scannt alle Seiten bei jedem Durchlauf", 
+        f"• {b('Intelligente Abdeckung:')} Garantiert, dass keine neuen Artikel übersehen werden",
+        f"• {b('Server-freundlich:')} Kontrollierte Anfragen mit Pausen zwischen Seiten",
+        "",
+        f"📊 {b('Benachrichtigungslogik:')}",
+        "",
+        "Sie erhalten nur Benachrichtigungen für wirklich NEUE Artikel:",
+        f"• Artikel muss {b('nach')} der Überwachungszeit inseriert worden sein",
+        f"• Artikel darf noch {b('nicht gesehen')} worden sein",
+        f"• {b('60-Minuten Kulanzfenster')} für Artikel ohne Zeitstempel",
+        "",
+        f"🌍 {b('Zeitzone:')} Alle Zeiten in Deutschland (Europe/Berlin)",
+        f"🔄 {b('Frequenz:')} Überwachung alle 60 Sekunden",
+        f"📱 {b('Plattform:')} Derzeit nur militaria321.com",
+        "",
+        f"💡 {b('Tipps:')}",
+        f"• Verwenden Sie {code('/list')}, um den Status Ihrer Überwachungen zu prüfen",
+        f"• Mit {code('/check')} können Sie manuell nach neuen Artikeln suchen",
+        f"• Der Bot zeigt die Gesundheit jeder Überwachung an",
+        f"• Bei Problemen nutzen Sie die 🔍 Diagnostik-Funktion in {code('/list')}",
+        "",
+        f"🎯 {b('Developed by:')} Deep-Pagination Experte",
+        f"📚 {b('Version:')} 2.0 mit Deep-Pagination Support"
+    ])
+    
+    await message.answer(help_text, parse_mode="HTML")
+    logger.info({"event": "send_text", "len": len(help_text), "preview": help_text[:120].replace("\n", "⏎")})
+
 async def main():
     """Main bot function"""
     global db_manager, search_service, notification_service, polling_scheduler
