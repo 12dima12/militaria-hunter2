@@ -319,7 +319,8 @@ async def cmd_check(message: Message):
             ])
             
             if result['pushed'] > 0:
-                response_lines.append(f"✅ {b(f'{result[\"pushed\"]} neue Artikel')} wurden nachträglich benachrichtigt!")
+                pushed_count = result['pushed']
+                response_lines.append(f"✅ {b(f'{pushed_count} neue Artikel')} wurden nachträglich benachrichtigt!")
             else:
                 response_lines.append("ℹ️ Alle gefundenen Artikel waren bereits bekannt oder zu alt.")
         else:
