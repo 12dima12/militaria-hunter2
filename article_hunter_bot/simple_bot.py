@@ -77,12 +77,60 @@ async def cmd_search(message: Message):
     # Check if keyword already exists
     normalized = SearchService.normalize_keyword(keyword_text)
     existing = await db_manager.get_keyword_by_normalized(user.id, normalized)
+    
+    # Log duplicate check for debugging
+    logger.info({
+        "event": "dup_check",
+        "user_id": user.id,
+        "normalized": normalized,
+        "found_doc_id": existing.id if existing else None,
+        "is_active": existing.is_active if existing else None,
+        "status_fields": {
+            "baseline_status": existing.baseline_status if existing else None,
+            "last_checked": existing.last_checked.isoformat() if existing and existing.last_checked else None
+        } if existing else None
+    })
+    
     if existing:
-        await message.answer(
-            f"⚠️ Suchbegriff **'{existing.original_keyword}'** existiert bereits.",
-            parse_mode="Markdown"
-        )
-        return
+        if existing.is_active:
+            # Truly active keyword exists
+            await message.answer(
+                f"⚠️ Suchbegriff **'{existing.original_keyword}'** existiert bereits.",
+                parse_mode="Markdown"
+            )
+            return
+        else:
+            # Inactive keyword exists - reactivate it
+            logger.info(f"Reactivating inactive keyword: {existing.original_keyword}")
+            
+            # Reset keyword for reactivation
+            existing.is_active = True
+            existing.since_ts = datetime.utcnow()
+            existing.seen_listing_keys = []
+            existing.baseline_status = "pending"
+            existing.baseline_errors = {}
+            existing.last_checked = None
+            existing.last_success_ts = None
+            existing.last_error_ts = None
+            existing.consecutive_errors = 0
+            existing.updated_at = datetime.utcnow()
+            
+            # Update in database
+            update_doc = existing.dict()
+            await db_manager.db.keywords.update_one(
+                {"id": existing.id},
+                {"$set": update_doc}
+            )
+            
+            # Reschedule job
+            if polling_scheduler:
+                polling_scheduler.add_keyword_job(existing, user.telegram_id)
+            
+            await message.answer(
+                f"✅ Suchbegriff reaktiviert: **{existing.original_keyword}** – Baseline wird neu aufgebaut.",
+                parse_mode="Markdown"
+            )
+            return
     
     # Show "searching" message
     status_msg = await message.answer(
