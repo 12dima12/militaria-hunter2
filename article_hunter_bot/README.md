@@ -159,7 +159,7 @@ Poll: Modus: rotate — Seiten: ~45 — Fenster: 12-16
 ```
 
 ### `/check <keyword>`
-Run full re-scan NOW (crawl all pages), update database, show page/item counts. No notifications sent.
+Manual verification and backfill command. Detects any pending/unprocessed listings that might have been missed (e.g., if bot was offline) and processes them accordingly. Sends notifications for genuinely new items found during backfill.
 
 **Example:**
 ```
@@ -168,8 +168,19 @@ Run full re-scan NOW (crawl all pages), update database, show page/item counts. 
 
 **Response:**
 ```
-Vollsuche abgeschlossen: "Wehrmacht Helm"
-• militaria321.com: 12 Seiten, 287 Produkte
+🔍 Manuelle Verifikation abgeschlossen: Wehrmacht Helm
+
+📊 Suchergebnisse:
+• Plattform: militaria321.com
+• Seiten durchsucht: 45
+• Artikel gefunden: 1,124
+
+🔄 Nachbearbeitung (Backfill):
+• Unverarbeitete Artikel: 3
+• Neue Benachrichtigungen: 2
+• Bereits bekannte Artikel: 1
+
+✅ 2 neue Artikel wurden nachträglich benachrichtigt!
 ```
 
 ### `/delete <keyword>`
