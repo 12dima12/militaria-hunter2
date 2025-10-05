@@ -254,24 +254,30 @@ async def cmd_check(message: Message):
     # Extract keyword from command
     args = message.text.split(" ", 1)
     if len(args) < 2:
-        await message.answer(
-            "❌ Bitte geben Sie den zu prüfenden Suchbegriff an.\\n\\n"
-            "Beispiel: `/check Wehrmacht Helm`",
-            parse_mode="Markdown"
-        )
+        text = br_join([
+            "❌ Bitte geben Sie den zu prüfenden Suchbegriff an.",
+            "",
+            f"Beispiel: {code('/check Wehrmacht Helm')}"
+        ])
+        await message.answer(text, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(text), "preview": text[:120].replace("\n", "⏎")})
         return
     
     keyword_text = args[1].strip()
     if not keyword_text:
-        await message.answer("❌ Suchbegriff darf nicht leer sein.")
+        text = "❌ Suchbegriff darf nicht leer sein."
+        await message.answer(text, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(text), "preview": text[:120].replace("\n", "⏎")})
         return
     
     # Show "checking" message
-    status_msg = await message.answer(
-        "🔍 **Vollsuche läuft...**\\n\\n"
-        "Durchsuche alle Seiten für aktuelle Treffer.",
-        parse_mode="Markdown"
-    )
+    check_text = br_join([
+        f"🔍 {b('Vollsuche läuft...')}",
+        "",
+        "Durchsuche alle Seiten für aktuelle Treffer."
+    ])
+    status_msg = await message.answer(check_text, parse_mode="HTML")
+    logger.info({"event": "send_text", "len": len(check_text), "preview": check_text[:120].replace("\n", "⏎")})
     
     try:
         # Perform full re-scan
