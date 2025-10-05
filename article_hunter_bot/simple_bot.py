@@ -79,34 +79,23 @@ async def _format_verification_block(last_item_meta: dict, keyword_text: str, se
         "had_to_fetch_detail": had_to_fetch_detail
     })
     
-    # Format timestamps
-    berlin_tz = ZoneInfo("Europe/Berlin")
-    now_berlin = datetime.now(berlin_tz).strftime("%d.%m.%Y %H:%M Uhr")
+    # Format timestamps and price using utilities
+    now_berlin = fmt_ts_de(datetime.now(timezone.utc))
+    posted_berlin = fmt_ts_de(listing.posted_ts)
+    price_formatted = fmt_price_de(listing.price_value, listing.price_currency)
     
-    if listing.posted_ts:
-        posted_berlin = listing.posted_ts.replace(tzinfo=timezone.utc).astimezone(berlin_tz).strftime("%d.%m.%Y %H:%M Uhr")
-    else:
-        posted_berlin = "/"
-    
-    # Format price
-    if listing.price_value:
-        provider = Militaria321Provider()
-        price_formatted = provider.format_price_de(listing.price_value, listing.price_currency)
-    else:
-        price_formatted = "/"
-    
-    # Build verification block with exact format
-    verification_text = (
-        f"🎖️ Der letzte gefundene Artikel auf Seite {page_index}\\n\\n"
-        f"🔍 Suchbegriff: {keyword_text}\\n"
-        f"📝 Titel: {listing.title}\\n"
-        f"💰 {price_formatted}\\n\\n"
-        f"🌐 Plattform: militaria321.com\\n"
-        f"🕐 Gefunden: {now_berlin}\\n"
+    # Build verification block using HTML formatting
+    return br_join([
+        f"🎖️ Der letzte gefundene Artikel auf Seite {page_index}",
+        "",
+        f"🔍 Suchbegriff: {keyword_text}",
+        f"📝 Titel: {safe_truncate(listing.title, 80)}",
+        f"💰 {price_formatted}",
+        "",
+        f"🌐 Plattform: {a('militaria321.com', listing.url)}",
+        f"🕐 Gefunden: {now_berlin}",
         f"✏️ Eingestellt am: {posted_berlin}"
-    )
-    
-    return verification_text
+    ])
 
 async def cmd_search(message: Message):
     """Handle /search <keyword> command"""
