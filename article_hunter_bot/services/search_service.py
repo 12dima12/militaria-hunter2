@@ -531,12 +531,12 @@ class SearchService:
         
         if item.posted_ts is not None:
             if item.posted_ts < keyword.since_ts:
-                return "skipped_old"
+                return "posted_ts<since_ts"
         else:
             grace_window = timedelta(minutes=60)
             time_since_subscription = datetime.utcnow() - keyword.since_ts
             if time_since_subscription > grace_window:
-                return "absorbed"
+                return "no_posted_ts_beyond_grace"
         
         return "unknown"
     
