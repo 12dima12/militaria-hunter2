@@ -52,6 +52,61 @@ async def ensure_user(telegram_user) -> User:
     
     return user
 
+async def _format_verification_block(last_item_meta: dict, keyword_text: str, search_service) -> str:
+    """Format verification block for last found listing"""
+    listing = last_item_meta["listing"]
+    page_index = last_item_meta["page_index"]
+    
+    # If posted_ts is missing, fetch it for display only
+    had_to_fetch_detail = False
+    if listing.posted_ts is None:
+        try:
+            provider = search_service.providers.get("militaria321.com")
+            if provider:
+                await provider.fetch_posted_ts_batch([listing], concurrency=1)
+                had_to_fetch_detail = True
+        except Exception as e:
+            logger.warning(f"Failed to fetch posted_ts for verification: {e}")
+    
+    # Log verification event
+    logger.info({
+        "event": "verification_last_item",
+        "platform": listing.platform,
+        "page_index": page_index,
+        "listing_key": f"{listing.platform}:{listing.platform_id}",
+        "posted_ts_utc": listing.posted_ts.isoformat() if listing.posted_ts else None,
+        "had_to_fetch_detail": had_to_fetch_detail
+    })
+    
+    # Format timestamps
+    berlin_tz = ZoneInfo("Europe/Berlin")
+    now_berlin = datetime.now(berlin_tz).strftime("%d.%m.%Y %H:%M Uhr")
+    
+    if listing.posted_ts:
+        posted_berlin = listing.posted_ts.replace(tzinfo=timezone.utc).astimezone(berlin_tz).strftime("%d.%m.%Y %H:%M Uhr")
+    else:
+        posted_berlin = "/"
+    
+    # Format price
+    if listing.price_value:
+        provider = Militaria321Provider()
+        price_formatted = provider.format_price_de(listing.price_value, listing.price_currency)
+    else:
+        price_formatted = "/"
+    
+    # Build verification block with exact format
+    verification_text = (
+        f"🎖️ Der letzte gefundene Artikel auf Seite {page_index}\\n\\n"
+        f"🔍 Suchbegriff: {keyword_text}\\n"
+        f"📝 Titel: {listing.title}\\n"
+        f"💰 {price_formatted}\\n\\n"
+        f"🌐 Plattform: militaria321.com\\n"
+        f"🕐 Gefunden: {now_berlin}\\n"
+        f"✏️ Eingestellt am: {posted_berlin}"
+    )
+    
+    return verification_text
+
 async def cmd_search(message: Message):
     """Handle /search <keyword> command"""
     user = await ensure_user(message.from_user)
