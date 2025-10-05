@@ -261,6 +261,25 @@ class SearchService:
                 "absorbed": absorbed_count
             })
             
+            # Update total_pages_estimate if missing (for proper rotating deep-scan)
+            if total_pages_estimate is None and pages_scanned > 0:
+                # Estimate based on baseline data or use a reasonable default
+                baseline_pages = getattr(keyword, 'baseline_pages_scanned', {})
+                militaria_pages = baseline_pages.get('militaria321.com', 0)
+                
+                if militaria_pages > 0:
+                    estimated_pages = militaria_pages
+                else:
+                    # Conservative estimate based on cursor position
+                    estimated_pages = max(poll_cursor_page + 50, 100)
+                
+                # Update in database
+                await self.db.db.keywords.update_one(
+                    {"id": keyword.id},
+                    {"$set": {"total_pages_estimate": estimated_pages}}
+                )
+                logger.info(f"Updated total_pages_estimate for '{keyword.normalized_keyword}': {estimated_pages} (was None)")
+            
         except Exception as e:
             logger.error(f"Error in deep polling for {provider.platform_name}: {e}")
             
