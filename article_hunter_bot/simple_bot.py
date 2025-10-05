@@ -502,7 +502,7 @@ async def cmd_list(message: Message):
                 "last_success_ts": keyword.last_success_ts.isoformat() if keyword.last_success_ts else None
             })
             
-            # Build keyword entry with proper formatting
+            # Build keyword entry with proper formatting including poll telemetry
             keyword_lines = [
                 f"📝 {b(keyword.original_keyword)}",
                 f"Status: {status} — {reason}",
@@ -510,6 +510,26 @@ async def cmd_list(message: Message):
                 f"Baseline: {keyword.baseline_status}",
                 f"Plattformen: {', '.join(keyword.platforms)}"
             ]
+            
+            # Add poll telemetry if available
+            if hasattr(keyword, 'poll_mode') and keyword.poll_mode:
+                poll_info_parts = [f"Modus: {keyword.poll_mode}"]
+                
+                if hasattr(keyword, 'total_pages_estimate') and keyword.total_pages_estimate:
+                    poll_info_parts.append(f"Seiten: ~{keyword.total_pages_estimate}")
+                
+                if hasattr(keyword, 'poll_cursor_page') and keyword.poll_mode == "rotate":
+                    cursor_page = getattr(keyword, 'poll_cursor_page', 1)
+                    window_size = getattr(keyword, 'poll_window', 5)
+                    poll_info_parts.append(f"Fenster: {cursor_page}-{cursor_page + window_size - 1}")
+                
+                if hasattr(keyword, 'last_deep_scan_at') and keyword.last_deep_scan_at:
+                    poll_info_parts.append(f"Tiefe Suche: {fmt_ts_de(keyword.last_deep_scan_at)}")
+                
+                if poll_info_parts:
+                    keyword_lines.append(f"Poll: {' — '.join(poll_info_parts)}")
+            else:
+                keyword_lines.append("Poll: Standard-Modus")
             
             message_lines.append(br_join(keyword_lines))
             
