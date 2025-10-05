@@ -323,7 +323,9 @@ async def cmd_delete(message: Message):
     
     keyword_text = args[1].strip()
     if not keyword_text:
-        await message.answer("❌ Suchbegriff darf nicht leer sein.")
+        text = "❌ Suchbegriff darf nicht leer sein."
+        await message.answer(text, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(text), "preview": text[:120].replace("\n", "⏎")})
         return
     
     # Find keyword (only active ones)
@@ -331,10 +333,9 @@ async def cmd_delete(message: Message):
     keyword = await db_manager.get_keyword_by_normalized(user.id, normalized, active_only=True)
     
     if not keyword:
-        await message.answer(
-            f"❌ Suchbegriff **'{keyword_text}'** nicht gefunden.",
-            parse_mode="Markdown"
-        )
+        text = f"❌ Suchbegriff {b(keyword_text)} nicht gefunden."
+        await message.answer(text, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(text), "preview": text[:120].replace("\n", "⏎")})
         return
     
     try:
@@ -345,9 +346,9 @@ async def cmd_delete(message: Message):
         if polling_scheduler:
             polling_scheduler.remove_keyword_job(keyword.id)
         
-        await message.answer(
-            f"Überwachung für \"{keyword.original_keyword}\" wurde gelöscht."
-        )
+        text = f"Überwachung für {b(keyword.original_keyword)} wurde gelöscht."
+        await message.answer(text, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(text), "preview": text[:120].replace("\n", "⏎")})
         
         logger.info({
             "event": "keyword_soft_deleted",
@@ -358,9 +359,9 @@ async def cmd_delete(message: Message):
         
     except Exception as e:
         logger.error(f"Error deleting keyword: {e}")
-        await message.answer(
-            "❌ Fehler beim Löschen. Bitte versuchen Sie es erneut."
-        )
+        text = "❌ Fehler beim Löschen. Bitte versuchen Sie es erneut."
+        await message.answer(text, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(text), "preview": text[:120].replace("\n", "⏎")})
 
 async def handle_delete_keyword_callback(callback: CallbackQuery):
     """Handle 'Keyword löschen' button from notifications"""
