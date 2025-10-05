@@ -466,15 +466,16 @@ async def cmd_list(message: Message):
         keywords = await db_manager.get_user_keywords(user.id, active_only=True)
         
         if not keywords:
-            await message.answer("Sie haben derzeit keine aktiven Überwachungen.")
+            text = "Sie haben derzeit keine aktiven Überwachungen."
+            await message.answer(text, parse_mode="HTML")
+            logger.info({"event": "send_text", "len": len(text), "preview": text[:120].replace("\n", "⏎")})
             return
         
         # Sort by created_at desc (newest first)
         keywords.sort(key=lambda k: k.created_at, reverse=True)
         
         # Build message with health status
-        
-        message_lines = ["**Ihre aktiven Überwachungen:**\\n"]
+        message_lines = [b("Ihre aktiven Überwachungen:"), ""]
         keyboard_buttons = []
         
         now_utc = datetime.utcnow()
@@ -495,14 +496,16 @@ async def cmd_list(message: Message):
                 "last_success_ts": keyword.last_success_ts.isoformat() if keyword.last_success_ts else None
             })
             
-            # Build keyword entry
-            keyword_text = f"""📝 **{keyword.original_keyword}**
-Status: {status} — {reason}
-Letzte Prüfung: {berlin(keyword.last_checked)} — Letzter Erfolg: {berlin(keyword.last_success_ts)}
-Baseline: {keyword.baseline_status}
-Plattformen: {", ".join(keyword.platforms)}"""
+            # Build keyword entry with proper formatting
+            keyword_lines = [
+                f"📝 {b(keyword.original_keyword)}",
+                f"Status: {status} — {reason}",
+                f"Letzte Prüfung: {fmt_ts_de(keyword.last_checked)} — Letzter Erfolg: {fmt_ts_de(keyword.last_success_ts)}",
+                f"Baseline: {keyword.baseline_status}",
+                f"Plattformen: {', '.join(keyword.platforms)}"
+            ]
             
-            message_lines.append(keyword_text)
+            message_lines.append(br_join(keyword_lines))
             
             # Add inline buttons for this keyword
             buttons_row = [
@@ -515,8 +518,9 @@ Plattformen: {", ".join(keyword.platforms)}"""
         keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
         
         # Send message
-        full_message = "\\n\\n".join(message_lines)
-        await message.answer(full_message, reply_markup=keyboard, parse_mode="Markdown")
+        full_message = br_join(message_lines)
+        await message.answer(full_message, reply_markup=keyboard, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(full_message), "preview": full_message[:120].replace("\n", "⏎")})
         
         # Log list render
         logger.info({
@@ -527,7 +531,9 @@ Plattformen: {", ".join(keyword.platforms)}"""
         
     except Exception as e:
         logger.error(f"Error in /list command: {e}")
-        await message.answer("❌ Fehler beim Laden der Überwachungen.")
+        text = "❌ Fehler beim Laden der Überwachungen."
+        await message.answer(text, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(text), "preview": text[:120].replace("\n", "⏎")})
 
 async def kw_diagnosis(callback: CallbackQuery):
     """Handle keyword diagnosis callback"""
