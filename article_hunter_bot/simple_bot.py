@@ -857,6 +857,7 @@ async def main():
     router.message.register(cmd_check, Command("check"))
     router.message.register(cmd_delete, Command("delete"))
     router.message.register(cmd_list, Command("list"))  # New list command
+    router.message.register(cmd_hilfe, Command("hilfe"))  # Help command
     
     # Admin clear handlers (public access)
     router.message.register(cmd_admin_clear, Command("admin"))
