@@ -151,6 +151,75 @@ class SearchService:
         
         return f"{platform}:{clean_id}"
     
+    async def _update_keyword_telemetry(self, keyword: Keyword):
+        """Update keyword telemetry in database"""
+        await self.db.db.keywords.update_one(
+            {"id": keyword.id},
+            {"$set": {
+                "last_checked": keyword.last_checked,
+                "last_success_ts": keyword.last_success_ts,
+                "last_error_ts": keyword.last_error_ts,
+                "last_error_message": keyword.last_error_message,
+                "consecutive_errors": keyword.consecutive_errors,
+                "baseline_status": keyword.baseline_status,
+                "baseline_errors": keyword.baseline_errors,
+                "updated_at": datetime.utcnow()
+            }}
+        )
+    
+    def compute_keyword_health(self, keyword: Keyword, now_utc: datetime, scheduler) -> tuple[str, str]:
+        """Compute keyword health status and reason"""
+        from zoneinfo import ZoneInfo
+        
+        def berlin(dt_utc: datetime | None) -> str:
+            if not dt_utc:
+                return "/"
+            return dt_utc.astimezone(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M") + " Uhr"
+        
+        INTERVAL_SEC = 60
+        STALE_WARN_SEC = 180  # 3 minutes
+        ERR_THRESHOLD = 3
+        
+        # Rule 1: Baseline not complete
+        if keyword.baseline_status != "complete":
+            status = "⏳ Baseline"
+            reason = f"Status: {keyword.baseline_status}"
+            if keyword.baseline_errors:
+                first_error = next(iter(keyword.baseline_errors.values()))
+                reason += f" - {first_error}"
+            return status, reason
+        
+        # Rule 2: No scheduler job
+        job_id = f"keyword_{keyword.id}"
+        if not scheduler.scheduler_has_job(job_id):
+            return "❌ Fehler", "Kein Scheduler-Job aktiv"
+        
+        # Rule 3: Too many consecutive errors
+        if keyword.consecutive_errors >= ERR_THRESHOLD:
+            reason = f"Letzte {ERR_THRESHOLD} Läufe fehlgeschlagen"
+            if keyword.last_error_message:
+                reason += f": {keyword.last_error_message[:100]}"
+            return "❌ Fehler", reason
+        
+        # Rule 4: Never successful but has errors
+        if keyword.last_success_ts is None and keyword.last_error_ts is not None:
+            reason = "Noch kein erfolgreicher Lauf"
+            if keyword.last_error_message:
+                reason += f": {keyword.last_error_message[:100]}"
+            return "❌ Fehler", reason
+        
+        # Rule 5: Stale success
+        if keyword.last_success_ts and (now_utc - keyword.last_success_ts).total_seconds() > STALE_WARN_SEC:
+            age_seconds = (now_utc - keyword.last_success_ts).total_seconds()
+            if age_seconds < 3600:  # Less than 1 hour
+                age = f"{int(age_seconds // 60)} Min"
+            else:  # Hours
+                age = f"{int(age_seconds // 3600)} Std"
+            return "⚠️ Warnung", f"Zu lange kein Erfolg: letzte Prüfung vor {age}"
+        
+        # Rule 6: Healthy
+        return "✅ Läuft", "Letzte Prüfung erfolgreich"
+    
     async def full_baseline_crawl(self, keyword_text: str) -> List[Listing]:
         """Perform full baseline crawl across ALL pages on militaria321.com
         
