@@ -409,7 +409,7 @@ async def kw_health_retest(callback: CallbackQuery):
             return
         
         # Show progress
-        await callback.answer(f"⏳ Prüfe \\"{keyword.original_keyword}\\"…")
+        await callback.answer(f"⏳ Prüfe \"{keyword.original_keyword}\"…")
         
         try:
             # Run search with dry_run=True (no notifications)
