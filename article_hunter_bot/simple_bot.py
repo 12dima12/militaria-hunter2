@@ -22,6 +22,7 @@ from services.notification_service import NotificationService
 from scheduler import PollingScheduler, stop_keyword_job
 from zoneinfo import ZoneInfo
 from providers.militaria321 import Militaria321Provider
+from utils.text import br_join, b, i, a, code, fmt_ts_de, fmt_price_de, safe_truncate
 
 # Load environment
 load_dotenv()
