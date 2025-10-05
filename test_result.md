@@ -364,7 +364,6 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Refactor /clear command for user-specific deletion"
     - "CRITICAL: Complete militaria321 provider implementation"
     - "End-to-end bot testing with Telegram"
   stuck_tasks:
