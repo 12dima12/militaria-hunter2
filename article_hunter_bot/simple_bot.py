@@ -194,11 +194,13 @@ async def cmd_search(message: Message):
             return
     
     # Show "searching" message
-    status_msg = await message.answer(
-        "🔍 **Suche läuft...**\\n\\n"
-        "Führe vollständige Baseline-Suche durch.",
-        parse_mode="Markdown"
-    )
+    search_text = br_join([
+        f"🔍 {b('Suche läuft...')}",
+        "",
+        "Führe vollständige Baseline-Suche durch."
+    ])
+    status_msg = await message.answer(search_text, parse_mode="HTML")
+    logger.info({"event": "send_text", "len": len(search_text), "preview": search_text[:120].replace("\n", "⏎")})
     
     try:
         # Create keyword subscription
@@ -228,21 +230,25 @@ async def cmd_search(message: Message):
             polling_scheduler.add_keyword_job(keyword, user.telegram_id)
         
         # Format main response message
-        response_text = (
-            f"Suche eingerichtet: \"{keyword_text}\"\\n\\n"
-            f"✅ Baseline abgeschlossen – Ich benachrichtige Sie künftig nur bei neuen Angeboten.\\n"
-            f"⏱️ Frequenz: Alle 60 Sekunden\\n\\n"
+        response_lines = [
+            f"Suche eingerichtet: {b(keyword_text)}",
+            "",
+            "✅ Baseline abgeschlossen – Ich benachrichtige Sie künftig nur bei neuen Angeboten.",
+            "⏱️ Frequenz: Alle 60 Sekunden",
+            "",
             f"📊 {len(seen_keys)} Angebote als Baseline erfasst"
-        )
+        ]
         
         # Add verification block if we have a last item
         if last_item_meta and last_item_meta.get("listing"):
             verification_text = await _format_verification_block(
                 last_item_meta, keyword_text, search_service
             )
-            response_text += "\\n\\n" + verification_text
+            response_lines.extend(["", verification_text])
         
-        await status_msg.edit_text(response_text, parse_mode="Markdown")
+        response_text = br_join(response_lines)
+        await status_msg.edit_text(response_text, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(response_text), "preview": response_text[:120].replace("\n", "⏎")})
         
         logger.info(f"Search subscription created: '{keyword_text}' with {len(seen_keys)} baseline items")
         
