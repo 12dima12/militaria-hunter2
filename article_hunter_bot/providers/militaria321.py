@@ -64,7 +64,7 @@ class Militaria321Provider(BaseProvider):
             page_index = 1
             groupsize = 25  # Default page size
             
-            max_pages = 1 if not crawl_all else 50  # Limit to prevent infinite loops
+            max_pages = 1 if not crawl_all else 2000  # Allow up to 50k+ items (2000 pages * ~25 items)
             
             while page_index <= max_pages:
                 # Calculate pagination: startat = (page_index - 1) * groupsize + 1
