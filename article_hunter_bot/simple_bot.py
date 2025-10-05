@@ -96,8 +96,8 @@ async def cmd_search(message: Message):
         )
         await db_manager.create_keyword(keyword)
         
-        # Perform full baseline crawl across ALL pages
-        baseline_items = await search_service.full_baseline_crawl(keyword_text, keyword.id)
+        # Perform full baseline seed with state machine
+        baseline_items = await search_service.full_baseline_seed(keyword_text, keyword.id)
         
         # Seed seen_listing_keys with all baseline results
         seen_keys = []
