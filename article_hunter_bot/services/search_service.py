@@ -21,7 +21,7 @@ class SearchService:
             "militaria321.com": Militaria321Provider()
         }
     
-    async def search_keyword(self, keyword: Keyword) -> List[Listing]:
+    async def search_keyword(self, keyword: Keyword, dry_run: bool = False) -> List[Listing]:
         """Search for new items for a keyword subscription
         
         Returns only items that pass strict newness gating with deduplication
