@@ -19,7 +19,7 @@ from database import DatabaseManager
 from models import User, Keyword
 from services.search_service import SearchService
 from services.notification_service import NotificationService
-from scheduler import PollingScheduler
+from scheduler import PollingScheduler, stop_keyword_job
 from zoneinfo import ZoneInfo
 
 # Load environment
