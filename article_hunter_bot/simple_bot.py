@@ -534,6 +534,14 @@ async def clear_my_keywords_confirm(callback: CallbackQuery):
         await callback.answer()
         return
 
+    # Log what keywords we're about to delete
+    logger.info({
+        "event": "clear_my_keywords_start",
+        "user_id": user.id,
+        "keyword_ids_to_delete": kw_ids,
+        "count": len(kw_ids)
+    })
+
     # Stop jobs (idempotent)
     stopped = 0
     for kw_id in kw_ids:
@@ -547,12 +555,13 @@ async def clear_my_keywords_confirm(callback: CallbackQuery):
     n_kw = await db_manager.delete_keywords_by_ids(kw_ids)
 
     logger.warning({
-        "event": "clear_my_keywords",
+        "event": "clear_my_keywords_result",
         "user_id": user.id,
         "kw_deleted": n_kw,
         "jobs_stopped": stopped,
         "hits_deleted": n_hits,
-        "notifs_deleted": n_notifs
+        "notifs_deleted": n_notifs,
+        "keyword_ids_targeted": kw_ids
     })
 
     await callback.message.edit_text(
