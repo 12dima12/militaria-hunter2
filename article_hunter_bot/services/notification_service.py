@@ -90,35 +90,22 @@ class NotificationService:
         
         Template as specified in requirements
         """
-        # Format price in German (use / if missing)
-        if item.price_value is not None:
-            preis = self.militaria321_provider.format_price_de(item.price_value, item.price_currency)
-        else:
-            preis = "/"
+        # Format price and timestamps using utilities
+        preis = fmt_price_de(item.price_value, item.price_currency)
+        gefunden = fmt_ts_de(datetime.now(ZoneInfo('UTC')))
+        inseriert_am = fmt_ts_de(item.posted_ts)
         
-        # Format timestamps in Berlin timezone
-        berlin_tz = ZoneInfo('Europe/Berlin')
-        gefunden = datetime.now(berlin_tz).strftime("%d.%m.%Y %H:%M")
-        
-        # Format posted_ts if available (Inseriert am / Auktionsstart)
-        if item.posted_ts:
-            # Convert UTC to Berlin time for display
-            posted_berlin = item.posted_ts.replace(tzinfo=ZoneInfo('UTC')).astimezone(berlin_tz)
-            inseriert_am = posted_berlin.strftime("%d.%m.%Y %H:%M")
-        else:
-            inseriert_am = "/"
-        
-        # Build message with exact German template
-        message_text = f"""🔎 Neues Angebot gefunden
-
-Suchbegriff: {keyword.original_keyword}
-Titel: {item.title}
-Preis: {preis}
-Plattform: militaria321.com
-Gefunden: {gefunden} Uhr
-Inseriert am: {inseriert_am} Uhr"""
-        
-        return message_text
+        # Build message with proper HTML formatting
+        return br_join([
+            f"🔎 {b('Neues Angebot gefunden')}",
+            "",
+            f"Suchbegriff: {keyword.original_keyword}",
+            f"Titel: {safe_truncate(item.title, 80)}",
+            f"Preis: {preis}",
+            f"Plattform: {a('militaria321.com', item.url)}",
+            f"Gefunden: {gefunden}",
+            f"Eingestellt am: {inseriert_am}"
+        ])
     
     def _build_canonical_listing_key(self, item: Listing) -> str:
         """Build canonical listing key: militaria321.com:<numeric_id>"""
