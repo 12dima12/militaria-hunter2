@@ -337,12 +337,6 @@ async def cmd_list(message: Message):
         keywords.sort(key=lambda k: k.created_at, reverse=True)
         
         # Build message with health status
-        from zoneinfo import ZoneInfo
-        
-        def berlin(dt_utc: datetime | None) -> str:
-            if not dt_utc:
-                return "/"
-            return dt_utc.astimezone(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M") + " Uhr"
         
         message_lines = ["**Ihre aktiven Überwachungen:**\\n"]
         keyboard_buttons = []
