@@ -157,10 +157,9 @@ class Militaria321Provider(BaseProvider):
                         # For polling, only check first page
                         break
                     
-                    # For crawl_all, continue until we get few items (site-dependent)
-                    # Since this site returns ~50 items per page, continue if we got significant results
-                    if len(page_items) < 10:  # Less than 10 items indicates last page
-                        logger.info(f"Reached last page {page_index} with {len(page_items)} items")
+                    # For crawl_all, use proper next-page detection
+                    if not self._has_next_page(soup, startat):
+                        logger.info(f"No next page detected after page {page_index} (startat={startat})")
                         break
                     
                     # Adaptive delay - faster for large crawls, polite for small ones
