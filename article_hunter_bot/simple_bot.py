@@ -5,7 +5,7 @@ Simple bot runner for Article Hunter - avoid router conflicts
 import asyncio
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from dotenv import load_dotenv
 
