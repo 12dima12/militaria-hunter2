@@ -71,8 +71,8 @@ class Keyword(BaseModel):
     # Poll-related fields for deep pagination
     poll_cursor_page: int = 1  # Current page position in rotating deep-scan
     total_pages_estimate: Optional[int] = None  # Estimated total pages for this keyword
-    poll_mode: str = "rotate"  # "full" or "rotate" 
-    poll_window: int = 5  # Number of pages in rotating window
+    poll_mode: str = "full"  # "full" or "rotate" 
+    poll_window: int = 12  # Number of pages in rotating window
     last_deep_scan_at: Optional[datetime] = None  # Last time full deep scan was done
 
 
