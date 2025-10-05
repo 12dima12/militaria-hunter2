@@ -88,15 +88,21 @@ class SearchService:
                 if self._is_new_listing(item, keyword):
                     all_new_items.append(item)
                     
-                    # Log decision
+                    # Log decision with detailed reason
+                    if item.posted_ts is not None:
+                        reason = "posted_ts>=since_ts"
+                    else:
+                        reason = "grace_window_allowed"
+                    
                     logger.info({
                         "event": "decision",
                         "platform": item.platform,
+                        "keyword_norm": keyword.normalized_keyword,
                         "listing_key": listing_key,
                         "posted_ts_utc": item.posted_ts.isoformat() if item.posted_ts else None,
                         "since_ts_utc": keyword.since_ts.isoformat(),
                         "decision": "pushed",
-                        "reason": "passed_newness_gate"
+                        "reason": reason
                     })
                 else:
                     # Item fails newness gate but should be added to seen set
