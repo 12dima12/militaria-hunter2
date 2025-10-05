@@ -151,6 +151,37 @@ class DatabaseManager:
             "notifications": r3.deleted_count,
         }
     
+    async def get_user_keyword_ids(self, user_id: str) -> List[str]:
+        """Get all keyword IDs for a user"""
+        cursor = self.db.keywords.find({"user_id": user_id}, {"id": 1})
+        docs = await cursor.to_list(length=None)
+        return [doc["id"] for doc in docs]
+    
+    async def delete_keywords_by_ids(self, keyword_ids: List[str]) -> int:
+        """Delete keywords by their IDs"""
+        if not keyword_ids:
+            return 0
+        result = await self.db.keywords.delete_many({"id": {"$in": keyword_ids}})
+        return result.deleted_count
+    
+    async def delete_keyword_hits_by_keyword_ids(self, keyword_ids: List[str]) -> int:
+        """Delete keyword hits by keyword IDs"""
+        if not keyword_ids:
+            return 0
+        # keyword_hits collection might not exist yet, handle gracefully
+        try:
+            result = await self.db.keyword_hits.delete_many({"keyword_id": {"$in": keyword_ids}})
+            return result.deleted_count
+        except Exception:
+            return 0
+    
+    async def delete_notifications_by_keyword_ids(self, keyword_ids: List[str]) -> int:
+        """Delete notifications by keyword IDs"""
+        if not keyword_ids:
+            return 0
+        result = await self.db.notifications.delete_many({"keyword_id": {"$in": keyword_ids}})
+        return result.deleted_count
+    
     async def close(self):
         """Close database connection"""
         if self.client:
