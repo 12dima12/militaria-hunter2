@@ -47,7 +47,10 @@ class Militaria321Provider(BaseProvider):
         since_ts: Optional[datetime] = None,
         sample_mode: bool = False,
         crawl_all: bool = False,
-        max_pages_override: Optional[int] = None
+        max_pages_override: Optional[int] = None,
+        mode: Optional[str] = None,
+        poll_pages: Optional[int] = None,
+        page_start: Optional[int] = None
     ) -> SearchResult:
         """Search militaria321.com with proper pagination"""
         
