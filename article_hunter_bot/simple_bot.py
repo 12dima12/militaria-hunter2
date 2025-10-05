@@ -665,19 +665,26 @@ async def clear_data_confirm(callback: CallbackQuery):
     # Call your existing global wipe function (listings/notifications/hits)
     try:
         res = await db_manager.admin_clear_products()  # existing method
-        await callback.message.edit_text(
-            f"🧹 Bereinigung abgeschlossen.\n"
-            f"• Listings: {res.get('listings', 0)}\n"
-            f"• Keyword-Treffer: {res.get('keyword_hits', 0)}\n"
+        result_text = br_join([
+            "🧹 Bereinigung abgeschlossen.",
+            "",
+            f"• Listings: {res.get('listings', 0)}",
+            f"• Keyword-Treffer: {res.get('keyword_hits', 0)}",
             f"• Benachrichtigungen: {res.get('notifications', 0)}"
-        )
+        ])
+        await callback.message.edit_text(result_text, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(result_text), "preview": result_text[:120].replace("\n", "⏎")})
     except Exception as e:
-        await callback.message.edit_text(f"❌ Fehler beim Löschen: {str(e)[:200]}")
+        error_text = f"❌ Fehler beim Löschen: {str(e)[:200]}"
+        await callback.message.edit_text(error_text, parse_mode="HTML")
+        logger.info({"event": "send_text", "len": len(error_text), "preview": error_text[:120].replace("\n", "⏎")})
     await callback.answer()
 
 async def clear_cancel(callback: CallbackQuery):
     """Handle clear operation cancellation"""
-    await callback.message.edit_text("❌ Abgebrochen.")
+    text = "❌ Abgebrochen."
+    await callback.message.edit_text(text, parse_mode="HTML")
+    logger.info({"event": "send_text", "len": len(text), "preview": text[:120].replace("\n", "⏎")})
     await callback.answer()
 
 async def admin_clear_confirm(callback: CallbackQuery):
