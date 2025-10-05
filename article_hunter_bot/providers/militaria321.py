@@ -177,6 +177,17 @@ class Militaria321Provider(BaseProvider):
         # Enrich with posted_ts for unseen items (if needed)
         # This is handled by SearchService for militaria321 items
         
+        # Log summary for large crawls
+        if crawl_all and pages_scanned > 1:
+            logger.info({
+                "event": "m321_crawl_complete",
+                "q": keyword,
+                "total_items": len(all_items),
+                "pages_scanned": pages_scanned,
+                "unique_ids": len(seen_ids),
+                "crawl_mode": "full" if crawl_all else "polling"
+            })
+        
         return SearchResult(
             items=all_items,
             total_count=total_count or len(all_items),
