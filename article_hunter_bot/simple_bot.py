@@ -423,7 +423,12 @@ async def handle_delete_keyword_callback(callback: CallbackQuery):
             return
         
         # Delete keyword
-        await db_manager.delete_keyword(keyword.id)
+        await db_manager.delete_keyword(
+            keyword.id,
+            reason=(
+                f"User {user.id} deleted keyword '{keyword.original_keyword}' via notification"
+            ),
+        )
         
         # Remove from scheduler
         if polling_scheduler:
@@ -704,7 +709,12 @@ async def clear_my_keywords_confirm(callback: CallbackQuery):
     # Delete artifacts first, then keywords (order prevents dangling refs)
     n_hits = await db_manager.delete_keyword_hits_by_keyword_ids(kw_ids)
     n_notifs = await db_manager.delete_notifications_by_keyword_ids(kw_ids)
-    n_kw = await db_manager.delete_keywords_by_ids(kw_ids)
+    n_kw = await db_manager.delete_keywords_by_ids(
+        kw_ids,
+        reason=(
+            f"User {user.id} cleared keywords via /clear. Deleted IDs: {', '.join(kw_ids)}"
+        ),
+    )
 
     logger.warning({
         "event": "clear_my_keywords_result",

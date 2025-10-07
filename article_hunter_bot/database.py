@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from motor.motor_asyncio import AsyncIOMotorClient
 from typing import Optional, List
 import logging
@@ -15,6 +16,9 @@ class DatabaseManager:
         self.client = None
         self.db = None
         self._initialized = False
+        base_dir = Path(__file__).resolve().parent
+        self.logs_dir = base_dir / "logs"
+        self.habdich_log_path = self.logs_dir / "habdich.txt"
     
     async def initialize(self):
         """Initialize database connection"""
@@ -115,9 +119,13 @@ class DatabaseManager:
             {"$set": {"seen_listing_keys": seen_keys, "updated_at": datetime.utcnow()}}
         )
     
-    async def delete_keyword(self, keyword_id: str):
+    async def delete_keyword(self, keyword_id: str, reason: Optional[str] = None):
         """Delete keyword (hard delete)"""
-        await self.db.keywords.delete_one({"id": keyword_id})
+        result = await self.db.keywords.delete_one({"id": keyword_id})
+        if result.deleted_count:
+            await self._handle_keywords_cleared(
+                reason or f"Keyword {keyword_id} deleted"
+            )
     
     async def soft_delete_keyword(self, keyword_id: str):
         """Soft delete keyword (set is_active = False)"""
@@ -171,11 +179,18 @@ class DatabaseManager:
         docs = await cursor.to_list(length=None)
         return [doc["id"] for doc in docs]
     
-    async def delete_keywords_by_ids(self, keyword_ids: List[str]) -> int:
+    async def delete_keywords_by_ids(
+        self, keyword_ids: List[str], reason: Optional[str] = None
+    ) -> int:
         """Delete keywords by their IDs"""
         if not keyword_ids:
             return 0
         result = await self.db.keywords.delete_many({"id": {"$in": keyword_ids}})
+        if result.deleted_count:
+            await self._handle_keywords_cleared(
+                reason
+                or f"Bulk delete for keyword IDs: {', '.join(keyword_ids)}"
+            )
         return result.deleted_count
     
     async def delete_keyword_hits_by_keyword_ids(self, keyword_ids: List[str]) -> int:
@@ -195,7 +210,22 @@ class DatabaseManager:
             return 0
         result = await self.db.notifications.delete_many({"keyword_id": {"$in": keyword_ids}})
         return result.deleted_count
-    
+
+    async def _handle_keywords_cleared(self, reason: str):
+        """Log to habdich.txt when the keywords collection becomes empty"""
+        remaining = await self.db.keywords.count_documents({})
+        if remaining != 0:
+            return
+
+        timestamp = datetime.utcnow().isoformat() + "Z"
+        log_reason = reason or "Keine Angabe"
+        try:
+            self.logs_dir.mkdir(parents=True, exist_ok=True)
+            with self.habdich_log_path.open("a", encoding="utf-8") as f:
+                f.write(f"{timestamp} | {log_reason}\n")
+        except Exception as e:
+            logger.error(f"Failed to write habdich log: {e}")
+
     async def close(self):
         """Close database connection"""
         if self.client:
