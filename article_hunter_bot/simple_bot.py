@@ -193,13 +193,14 @@ async def cmd_search(message: Message):
     
     try:
         # Create keyword subscription
+        provider_platforms = list(search_service.providers.keys()) if search_service else ["militaria321.com", "egun.de"]
         keyword = Keyword(
             user_id=user.id,
             original_keyword=keyword_text,
             normalized_keyword=normalized,
             since_ts=datetime.utcnow(),  # Set baseline timestamp
             baseline_status="pending",
-            platforms=["militaria321.com"]
+            platforms=provider_platforms
         )
         await db_manager.create_keyword(keyword)
         
@@ -549,24 +550,25 @@ async def cmd_list(message: Message):
             ]
             
             # Add poll telemetry if available
-            if hasattr(keyword, 'poll_mode') and keyword.poll_mode:
-                poll_info_parts = [f"Modus: {keyword.poll_mode}"]
-                
-                if hasattr(keyword, 'total_pages_estimate') and keyword.total_pages_estimate:
-                    poll_info_parts.append(f"Seiten: ~{keyword.total_pages_estimate}")
-                
-                if hasattr(keyword, 'poll_cursor_page') and keyword.poll_mode == "rotate":
-                    cursor_page = getattr(keyword, 'poll_cursor_page', 1)
-                    window_size = getattr(keyword, 'poll_window', 5)
-                    poll_info_parts.append(f"Fenster: {cursor_page}-{cursor_page + window_size - 1}")
-                
-                if hasattr(keyword, 'last_deep_scan_at') and keyword.last_deep_scan_at:
-                    poll_info_parts.append(f"Tiefe Suche: {fmt_ts_de(keyword.last_deep_scan_at)}")
-                
-                if poll_info_parts:
-                    keyword_lines.append(f"Poll: {' — '.join(poll_info_parts)}")
-            else:
-                keyword_lines.append("Poll: Standard-Modus")
+            poll_mode_value = getattr(keyword, 'poll_mode', 'full') or 'full'
+            mode_labels = {
+                "full": "full (Alle Seiten)",
+                "rotate": "rotate (rotierendes Fenster, deaktiviert)",
+            }
+            poll_info_parts = [f"Modus: {mode_labels.get(poll_mode_value, poll_mode_value)}"]
+
+            if hasattr(keyword, 'total_pages_estimate') and keyword.total_pages_estimate:
+                poll_info_parts.append(f"Seiten: ~{keyword.total_pages_estimate}")
+
+            if poll_mode_value == "rotate" and hasattr(keyword, 'poll_cursor_page'):
+                cursor_page = getattr(keyword, 'poll_cursor_page', 1)
+                window_size = getattr(keyword, 'poll_window', 5)
+                poll_info_parts.append(f"Fenster: {cursor_page}-{cursor_page + window_size - 1}")
+
+            if hasattr(keyword, 'last_deep_scan_at') and keyword.last_deep_scan_at:
+                poll_info_parts.append(f"Tiefe Suche: {fmt_ts_de(keyword.last_deep_scan_at)}")
+
+            keyword_lines.append(f"Poll: {' — '.join(poll_info_parts)}")
             
             message_lines.append(br_join(keyword_lines))
             
@@ -804,7 +806,7 @@ async def cmd_hilfe(message: Message):
     help_text = br_join([
         f"🤖 {b('Article Hunter Bot - Hilfe')}",
         "",
-        "Dieser Bot überwacht militaria321.com nach neuen Angeboten, die zu Ihren Suchbegriffen passen, und benachrichtigt Sie sofort.",
+        "Dieser Bot überwacht militaria321.com und egun.de nach neuen Angeboten, die zu Ihren Suchbegriffen passen, und benachrichtigt Sie sofort.",
         "",
         f"📋 {b('Verfügbare Befehle:')}",
         "",
@@ -833,8 +835,8 @@ async def cmd_hilfe(message: Message):
         "",
         "Der Bot löst das Problem, dass militaria321.com nach Auktionsende sortiert und neue Artikel auf hinteren Seiten erscheinen können:",
         "",
-        f"• {b('Rotierender Modus (Standard):')} Scannt Hauptseiten + rotierendes Fenster",
-        f"• {b('Vollständiger Modus:')} Scannt alle Seiten bei jedem Durchlauf", 
+        f"• {b('Vollständiger Modus (Standard):')} Scannt alle Seiten bei jedem Durchlauf",
+        f"• {b('Legacy-Rotationsmodus:')} Deaktiviert – bestehende Überwachungen werden automatisch migriert",
         f"• {b('Intelligente Abdeckung:')} Garantiert, dass keine neuen Artikel übersehen werden",
         f"• {b('Server-freundlich:')} Kontrollierte Anfragen mit Pausen zwischen Seiten",
         "",
@@ -847,7 +849,7 @@ async def cmd_hilfe(message: Message):
         "",
         f"🌍 {b('Zeitzone:')} Alle Zeiten in Deutschland (Europe/Berlin)",
         f"🔄 {b('Frequenz:')} Überwachung alle 60 Sekunden",
-        f"📱 {b('Plattform:')} Derzeit nur militaria321.com",
+        f"📱 {b('Plattformen:')} militaria321.com & egun.de",
         "",
         f"💡 {b('Tipps:')}",
         f"• Verwenden Sie {code('/list')}, um den Status Ihrer Überwachungen zu prüfen",

@@ -3,18 +3,23 @@ import os
 import re
 import unicodedata
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Literal
 
 from database import DatabaseManager
 from models import Keyword, Listing, StoredListing
-from providers.militaria321 import Militaria321Provider
+from providers import get_all_providers
 from utils.text import br_join, b, i, a, code, fmt_ts_de, fmt_price_de, safe_truncate
 
 logger = logging.getLogger(__name__)
 
 # Configuration constants with environment variable support
-POLL_MODE = os.environ.get("POLL_MODE", "full")  # Default to full scan
+_RAW_POLL_MODE = os.environ.get("POLL_MODE", "full").strip().lower()
+if _RAW_POLL_MODE not in {"", "full"}:
+    logger.warning(
+        "Rotate poll mode has been disabled. Falling back to full-scan pagination."
+    )
+POLL_MODE = "full"
 PRIMARY_PAGES = int(os.environ.get("PRIMARY_PAGES", "1"))
 POLL_WINDOW = int(os.environ.get("POLL_WINDOW", "5"))
 MAX_PAGES_PER_CYCLE = int(os.environ.get("MAX_PAGES_PER_CYCLE", "200"))  # Allow scanning up to 200 pages
@@ -28,16 +33,16 @@ class SearchService:
     
     def __init__(self, db_manager: DatabaseManager):
         self.db = db_manager
-        # Initialize with militaria321.com provider (extensible for future providers)
-        self.providers = {
-            "militaria321.com": Militaria321Provider()
-        }
+        # Initialize all registered providers in deterministic order
+        self.providers = get_all_providers()
     
     async def search_keyword(self, keyword: Keyword, dry_run: bool = False) -> List[Listing]:
-        """Search for new items with deep pagination strategy
-        
-        Supports both full-scan and rotating deep-scan modes to ensure no new items
-        are missed due to militaria321's end-date sorting.
+        """Search for new items with the deep pagination strategy.
+
+        The system now relies on the full-scan mode for every keyword to guarantee
+        that no militaria321.com listings are missed due to end-date sorting quirks.
+        Legacy "rotate" mode definitions are migrated automatically to the
+        full-scan behaviour.
         """
         # Check if keyword needs migration (empty or non-ID-based seen_listing_keys)
         needs_migration = False
@@ -65,14 +70,33 @@ class SearchService:
         all_new_items = []
         seen_this_run = set()  # In-run deduplication
         
-        # Determine polling mode: use keyword-level settings or global defaults
-        poll_mode = getattr(keyword, 'poll_mode', POLL_MODE)
+        # Determine polling mode: rotate has been disabled globally; ensure keywords follow suit
+        stored_poll_mode = getattr(keyword, 'poll_mode', POLL_MODE)
+        normalized_poll_mode = (stored_poll_mode or "").lower()
+        if normalized_poll_mode != "full":
+            logger.info(
+                {
+                    "event": "poll_mode_reset",
+                    "keyword": keyword.normalized_keyword,
+                    "previous_mode": stored_poll_mode,
+                    "new_mode": "full",
+                }
+            )
+            keyword.poll_mode = "full"
+            keywords_collection = getattr(getattr(self.db, "db", None), "keywords", None)
+            if keywords_collection is not None:
+                await keywords_collection.update_one(
+                    {"id": keyword.id},
+                    {"$set": {"poll_mode": "full"}},
+                )
+
+        poll_mode = "full"
         poll_window = getattr(keyword, 'poll_window', POLL_WINDOW)
         total_pages_estimate = getattr(keyword, 'total_pages_estimate', None)
         poll_cursor_page = getattr(keyword, 'poll_cursor_page', 1)
         
         # Get militaria321 provider
-        provider = self.providers["militaria321.com"]
+        militaria_provider = self.providers["militaria321.com"]
         
         try:
             # Determine which pages to scan based on polling mode
@@ -93,14 +117,14 @@ class SearchService:
             # Use provider's built-in crawl_all mode to scan all available pages efficiently
             max_pages_to_scan = min(len(pages_to_scan), MAX_PAGES_PER_CYCLE)
             
-            result = await provider.search(
+            result = await militaria_provider.search(
                 keyword=keyword.original_keyword,
                 since_ts=keyword.since_ts,
                 crawl_all=True,  # Scan ALL pages to prevent missed items
                 max_pages_override=max_pages_to_scan
             )
             
-            pages_scanned = result.pages_scanned or 0
+            militaria_pages_scanned = result.pages_scanned or 0
             all_items = result.items
             unseen_candidates = 0
             pushed_count = 0
@@ -130,22 +154,67 @@ class SearchService:
             logger.info({
                 "event": "deep_scan_complete",
                 "q": keyword.normalized_keyword,
-                "pages_scanned": pages_scanned,
+                "pages_scanned": militaria_pages_scanned,
                 "total_items_found": len(all_items),
                 "unseen_candidates": unseen_candidates,
                 "max_pages_allowed": max_pages_to_scan
             })
-            
+
+            # Collect results from additional providers (e.g., egun.de)
+            for platform_name, provider in self.providers.items():
+                if platform_name == "militaria321.com":
+                    continue
+                if platform_name not in getattr(keyword, "platforms", [platform_name]):
+                    continue
+
+                try:
+                    provider_result = await provider.search(
+                        keyword=keyword.original_keyword,
+                        since_ts=keyword.since_ts,
+                        crawl_all=True
+                    )
+                except Exception as exc:
+                    logger.error(f"Error searching {platform_name}: {exc}")
+                    continue
+
+                logger.info(
+                    {
+                        "event": "provider_scan",
+                        "platform": platform_name,
+                        "q": keyword.normalized_keyword,
+                        "pages_scanned": provider_result.pages_scanned,
+                        "items_found": len(provider_result.items),
+                    }
+                )
+
+                for item in provider_result.items:
+                    listing_key = self._build_canonical_listing_key(item)
+                    if listing_key in seen_this_run:
+                        continue
+                    seen_this_run.add(listing_key)
+                    if listing_key not in keyword.seen_listing_keys:
+                        unseen_candidates += 1
+                    all_items.append(item)
+
             # Enrich unseen items with posted_ts/price
             unseen_items = []
             for item in all_items:
                 listing_key = self._build_canonical_listing_key(item)
                 if listing_key not in keyword.seen_listing_keys:
                     unseen_items.append(item)
-            
+
             if unseen_items:
-                # Fetch posted_ts and complete missing prices with controlled concurrency
-                await provider.fetch_posted_ts_batch(unseen_items, concurrency=DETAIL_CONCURRENCY)
+                unseen_by_platform: dict[str, List[Listing]] = {}
+                for item in unseen_items:
+                    unseen_by_platform.setdefault(item.platform, []).append(item)
+
+                for platform_name, items in unseen_by_platform.items():
+                    provider = self.providers.get(platform_name)
+                    if provider and hasattr(provider, "fetch_posted_ts_batch"):
+                        try:
+                            await provider.fetch_posted_ts_batch(items, concurrency=DETAIL_CONCURRENCY)
+                        except Exception as exc:
+                            logger.warning(f"Detail fetch failed for {platform_name}: {exc}")
             
             # Apply strict newness gating to all collected items
             new_seen_keys = []
@@ -203,8 +272,8 @@ class SearchService:
                 )
             
             # Update poll cursor for rotating mode
-            if poll_mode == "rotate" and pages_scanned > 0:
-                new_cursor = (poll_cursor_page + poll_window) 
+            if poll_mode == "rotate" and militaria_pages_scanned > 0:
+                new_cursor = (poll_cursor_page + poll_window)
                 if total_pages_estimate and new_cursor > total_pages_estimate:
                     new_cursor = 1  # Wrap around
                 
@@ -218,7 +287,7 @@ class SearchService:
                 "event": "poll_summary",
                 "keyword": keyword.normalized_keyword,
                 "mode": poll_mode,
-                "pages_scanned": pages_scanned,
+                "pages_scanned": militaria_pages_scanned,
                 "primary_pages": PRIMARY_PAGES,
                 "cursor_start": poll_cursor_page,
                 "window_size": poll_window,
@@ -228,7 +297,7 @@ class SearchService:
             })
             
             # Update total_pages_estimate if missing (for proper rotating deep-scan)
-            if total_pages_estimate is None and pages_scanned > 0:
+            if total_pages_estimate is None and militaria_pages_scanned > 0:
                 # Estimate based on baseline data or use a reasonable default
                 baseline_pages = getattr(keyword, 'baseline_pages_scanned', {})
                 militaria_pages = baseline_pages.get('militaria321.com', 0)
@@ -247,7 +316,7 @@ class SearchService:
                 logger.info(f"Updated total_pages_estimate for '{keyword.normalized_keyword}': {estimated_pages} (was None)")
             
         except Exception as e:
-            logger.error(f"Error in deep polling for {provider.platform_name}: {e}")
+            logger.error(f"Error in deep polling for {militaria_provider.platform_name}: {e}")
             
             # Update telemetry on error
             now = datetime.utcnow()
@@ -886,7 +955,11 @@ class SearchService:
         else:
             # No posted_ts: allow within 60-minute grace window
             grace_window = timedelta(minutes=60)
-            time_since_subscription = datetime.utcnow() - keyword.since_ts
+            now_utc = datetime.now(timezone.utc)
+            since_ts = keyword.since_ts
+            if since_ts.tzinfo is None:
+                since_ts = since_ts.replace(tzinfo=timezone.utc)
+            time_since_subscription = now_utc - since_ts
             return time_since_subscription <= grace_window
     
     def _get_filter_reason(self, item: Listing, keyword: Keyword) -> str:
@@ -901,7 +974,11 @@ class SearchService:
                 return "posted_ts<since_ts"
         else:
             grace_window = timedelta(minutes=60)
-            time_since_subscription = datetime.utcnow() - keyword.since_ts
+            now_utc = datetime.now(timezone.utc)
+            since_ts = keyword.since_ts
+            if since_ts.tzinfo is None:
+                since_ts = since_ts.replace(tzinfo=timezone.utc)
+            time_since_subscription = now_utc - since_ts
             if time_since_subscription > grace_window:
                 return "no_posted_ts_beyond_grace"
         
