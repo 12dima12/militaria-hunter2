@@ -1,11 +1,12 @@
 # Telegram Article Hunter Bot
 
-A sophisticated Telegram bot that monitors militaria321.com for new listings matching user-defined keywords, delivering immediate push notifications with deep pagination support to ensure no new items are missed.
+A sophisticated Telegram bot that monitors militaria321.com and egun.de for new listings matching user-defined keywords, delivering immediate push notifications with deep pagination support to ensure no new items are missed.
 
 ## Features
 
-- **Deep Pagination System**: Monitors all pages, not just the first few, solving militaria321.com's end-date sorting issue
-- **Intelligent Polling**: Two modes (full-scan and rotating deep-scan) for efficient coverage
+- **Multi-Platform Monitoring**: Watches militaria321.com & egun.de with shared newness gating
+- **Full-Scan Deep Pagination**: Monitors all pages, solving militaria321.com's end-date sorting issue
+- **Legacy Rotation Migration**: Old rotate-mode subscriptions are auto-upgraded to full scans
 - **German Commands**: `/search`, `/list`, `/check`, `/delete`, `/hilfe`
 - **Smart Monitoring**: Only notifies for truly NEW items (strict timestamp gating)
 - **Stable ID Tracking**: Uses canonical numeric IDs to prevent duplicate notifications
@@ -35,7 +36,7 @@ A sophisticated Telegram bot that monitors militaria321.com for new listings mat
    DB_NAME=article_hunter
    
    # Deep Pagination Configuration (Optional)
-   POLL_MODE=rotate              # "full" or "rotate"
+   POLL_MODE=full                # Full-scan enforced; rotate mode disabled
    PRIMARY_PAGES=1               # Always scan these front pages
    POLL_WINDOW=5                 # Rotating window size
    MAX_PAGES_PER_CYCLE=40        # Hard limit on pages per cycle
@@ -83,26 +84,20 @@ The bot solves militaria321.com's critical end-date sorting issue where new item
 
 ### Polling Modes
 
-**Rotate Mode (Default)**: Efficient rotating window strategy
+**Full Mode (Standard)**: Scans all available pages during every cycle to guarantee immediate detection.
 ```
-Example: 50 total pages, window=5, cursor=8
-Cycle 1: Scan pages [1, 8, 9, 10, 11, 12]
-Cycle 2: Scan pages [1, 13, 14, 15, 16, 17]  
-Cycle 3: Scan pages [1, 18, 19, 20, 21, 22]
-Result: Complete coverage over time, site-friendly
+Example: 45 total pages
+Cycle: Scan pages [1-45]
+Result: Kein Artikel wird übersehen.
 ```
 
-**Full Mode**: Scan all pages every cycle
-```
-Best for: Keywords with <40 pages
-Trade-off: Immediate detection but higher resource usage
-```
+**Legacy Rotate Mode (Deaktiviert)**: Historische rotierende Fensterstrategie. Bestehende Keywords werden automatisch auf den Vollmodus migriert.
 
 ### Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `POLL_MODE` | `rotate` | Strategy: `full` or `rotate` |
+| `POLL_MODE` | `full` | Strategy: `full` (rotate disabled) |
 | `PRIMARY_PAGES` | `1` | Always scan these front pages |
 | `POLL_WINDOW` | `5` | Pages in rotating window |
 | `MAX_PAGES_PER_CYCLE` | `40` | Hard limit per cycle |
@@ -115,14 +110,14 @@ The `/list` command shows enhanced telemetry:
 Status: ✅ Läuft — Letzte Prüfung erfolgreich
 Letzte Prüfung: 05.10.2025 16:19 Uhr — Letzter Erfolg: 05.10.2025 16:19 Uhr
 Baseline: complete
-Plattformen: militaria321.com
-Poll: Modus: rotate — Seiten: ~45 — Fenster: 12-16
+Plattformen: militaria321.com, egun.de
+Poll: Modus: full (Alle Seiten) — Seiten: ~45
 ```
 
 ## Commands
 
 ### `/search <keyword>`
-Create a subscription for `<keyword>`. Runs full baseline crawl across ALL pages on militaria321.com, seeds seen items (no initial notifications), then starts deep pagination polling.
+Create a subscription for `<keyword>`. Runs full baseline crawl across ALL pages on militaria321.com, collects organic egun.de results, seeds seen items (no initial notifications), then starts deep pagination polling.
 
 **Example:**
 ```
@@ -152,8 +147,8 @@ Ihre aktiven Überwachungen:
 Status: ✅ Läuft — Letzte Prüfung erfolgreich  
 Letzte Prüfung: 05.10.2025 16:19 Uhr — Letzter Erfolg: 05.10.2025 16:19 Uhr
 Baseline: complete
-Plattformen: militaria321.com
-Poll: Modus: rotate — Seiten: ~45 — Fenster: 12-16
+Plattformen: militaria321.com, egun.de
+Poll: Modus: full (Alle Seiten) — Seiten: ~45
 
 [🔍 Diagnostik] [🗑️ Löschen]
 ```
@@ -171,8 +166,8 @@ Manual verification and backfill command. Detects any pending/unprocessed listin
 🔍 Manuelle Verifikation abgeschlossen: Wehrmacht Helm
 
 📊 Suchergebnisse:
-• Plattform: militaria321.com
-• Seiten durchsucht: 45
+• Plattformen: militaria321.com, egun.de
+• Seiten durchsucht: 45 (militaria321.com) + 12 (egun.de)
 • Artikel gefunden: 1,124
 
 🔄 Nachbearbeitung (Backfill):
@@ -212,7 +207,7 @@ When a truly NEW item is found, you'll receive:
 Suchbegriff: Wehrmacht Helm
 Titel: Original Wehrmacht M35 Stahlhelm
 Preis: 1.234,56 €
-Plattform: militaria321.com
+Plattform: egun.de
 Bild: 🖼️ Thumbnail
 Gefunden: 04.12.2024 15:30 Uhr
 Inseriert am: 04.12.2024 14:15 Uhr

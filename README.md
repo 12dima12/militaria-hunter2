@@ -1,6 +1,6 @@
 # Telegram Article Hunter Bot - Deployment Guide
 
-This guide will help you deploy the Article Hunter Bot on your own server so it can monitor militaria321.com 24/7 and send you notifications.
+This guide will help you deploy the Article Hunter Bot on your own server so it can monitor militaria321.com and egun.de 24/7 and send you notifications.
 
 ## What You Need
 
@@ -93,7 +93,7 @@ MONGO_URL=mongodb://localhost:27017
 DB_NAME=article_hunter_prod
 
 # Deep Pagination Settings (optional - these are good defaults)
-POLL_MODE=rotate
+POLL_MODE=full
 PRIMARY_PAGES=1
 POLL_WINDOW=5
 MAX_PAGES_PER_CYCLE=40
@@ -309,7 +309,7 @@ If you encounter issues:
 
 ## What the Bot Does
 
-- **Monitors militaria321.com** every 60 seconds for new items
+- **Monitors militaria321.com & egun.de** every 60 seconds for new items
 - **Deep Pagination**: Checks ALL pages, not just the first few
 - **Smart Detection**: Only notifies for genuinely new items
 - **German Interface**: All commands and messages in German

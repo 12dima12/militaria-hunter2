@@ -66,7 +66,7 @@ class Keyword(BaseModel):
     last_error_ts: Optional[datetime] = None  # UTC
     last_error_message: Optional[str] = None
     consecutive_errors: int = 0  # reset to 0 on success; +1 on failure
-    platforms: List[str] = Field(default_factory=lambda: ["militaria321.com"])  # ["militaria321.com"]
+    platforms: List[str] = Field(default_factory=lambda: ["militaria321.com", "egun.de"])
     
     # Poll-related fields for deep pagination
     poll_cursor_page: int = 1  # Current page position in rotating deep-scan
