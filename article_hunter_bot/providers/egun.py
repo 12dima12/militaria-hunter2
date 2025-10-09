@@ -353,6 +353,10 @@ class EgunProvider(BaseProvider):
                             response.encoding = "utf-8"
                         soup = BeautifulSoup(response.text, "html.parser")
                         posted_ts, mode = self._extract_posted_ts(soup)
+                        if posted_ts is None:
+                            posted_ts = self._fallback_posted_ts()
+                            mode = "fallback"
+
                         if posted_ts:
                             item.posted_ts = posted_ts
                             logger.info(
@@ -365,8 +369,13 @@ class EgunProvider(BaseProvider):
                             )
                     except Exception as exc:
                         logger.debug(f"Failed to fetch posted_ts for {item.url}: {exc}")
+                        if item.posted_ts is None:
+                            item.posted_ts = self._fallback_posted_ts()
 
             await asyncio.gather(*(worker(item) for item in targets))
+
+    def _fallback_posted_ts(self) -> datetime:
+        return datetime.now(self.UTC_TZ) - timedelta(days=1)
 
     def _extract_posted_ts(self, soup: BeautifulSoup) -> Tuple[Optional[datetime], Optional[str]]:
         direct = self._extract_direct_posted_ts(soup)
@@ -397,21 +406,48 @@ class EgunProvider(BaseProvider):
         return None
 
     def _compute_posted_ts_from_duration(self, soup: BeautifulSoup) -> Optional[datetime]:
-        laufzeit_text = self._find_detail_value(soup, "Laufzeit")
-        end_text = self._find_detail_value(soup, "vorauss. Ende")
-        if not laufzeit_text or not end_text:
-            return None
-
-        laufzeit_match = re.search(r"(\d+)", laufzeit_text)
-        if not laufzeit_match:
-            return None
-        days = int(laufzeit_match.group(1))
-        end_dt = self._parse_german_datetime(end_text)
+        end_dt = self._extract_end_datetime(soup)
         if not end_dt:
             return None
 
+        days = self._extract_duration_days(soup)
+        if days is None:
+            days = 30
+
         posted_local = end_dt - timedelta(days=days)
         return posted_local.astimezone(self.UTC_TZ)
+
+    def _extract_end_datetime(self, soup: BeautifulSoup) -> Optional[datetime]:
+        end_text = self._find_detail_value(soup, "vorauss. Ende")
+        if end_text:
+            parsed = self._parse_german_datetime(end_text)
+            if parsed:
+                return parsed
+
+        text = unicodedata.normalize("NFKC", soup.get_text(" ", strip=True))
+        pattern = re.compile(
+            r"vorauss\.?\s*Ende\s*:?[\s\-]*((?:Mo|Di|Mi|Do|Fr|Sa|So|Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)[.,\s]*)?"
+            r"(\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}(?::\d{2})?)",
+            re.IGNORECASE,
+        )
+        for match in pattern.finditer(text):
+            prefix = match.group(1) or ""
+            candidate = f"{prefix}{match.group(2)}".strip()
+            parsed = self._parse_german_datetime(candidate)
+            if parsed:
+                return parsed
+        return None
+
+    def _extract_duration_days(self, soup: BeautifulSoup) -> Optional[int]:
+        laufzeit_text = self._find_detail_value(soup, "Laufzeit")
+        if laufzeit_text:
+            laufzeit_match = re.search(r"(\d+)", laufzeit_text)
+            if laufzeit_match:
+                try:
+                    return int(laufzeit_match.group(1))
+                except ValueError:
+                    pass
+        return None
 
     def _find_detail_value(self, soup: BeautifulSoup, label: str) -> Optional[str]:
         label_cf = unicodedata.normalize("NFKC", label).casefold()
