@@ -9,7 +9,7 @@ from typing import List, Optional, Literal
 from database import DatabaseManager
 from models import Keyword, Listing, StoredListing
 from providers import get_all_providers
-from utils.text import br_join, b, i, a, code, fmt_ts_de, fmt_price_de, safe_truncate
+from utils.text import br_join, b, i, a, code, fmt_ts_de, fmt_price_de
 
 logger = logging.getLogger(__name__)
 
@@ -215,6 +215,7 @@ class SearchService:
                             await provider.fetch_posted_ts_batch(items, concurrency=DETAIL_CONCURRENCY)
                         except Exception as exc:
                             logger.warning(f"Detail fetch failed for {platform_name}: {exc}")
+                    self._apply_posted_ts_fallback(items)
             
             # Apply strict newness gating to all collected items
             new_seen_keys = []
@@ -367,15 +368,24 @@ class SearchService:
         """Build canonical listing key: militaria321.com:<numeric_id>"""
         # Ensure platform is lowercase and normalized
         platform = item.platform.lower().strip()
-        
+
         # Extract numeric ID if platform_id contains extra data
         numeric_id = re.search(r'(\d+)', item.platform_id)
         if numeric_id:
             clean_id = numeric_id.group(1)
         else:
             clean_id = item.platform_id
-        
+
         return f"{platform}:{clean_id}"
+
+    def _apply_posted_ts_fallback(self, items: List[Listing]) -> None:
+        if not items:
+            return
+
+        fallback_ts = datetime.now(timezone.utc) - timedelta(days=1)
+        for item in items:
+            if item.platform == "egun.de" and item.posted_ts is None:
+                item.posted_ts = fallback_ts
     
     async def _update_keyword_telemetry(self, keyword: Keyword):
         """Update keyword telemetry in database"""
@@ -753,90 +763,152 @@ class SearchService:
         return all_items, last_item_meta
     
     async def manual_backfill_check(self, keyword_text: str, user_id: str) -> dict:
-        """Manual backfill and verification for /check command
-        
-        Detects any pending/unprocessed listings that might have been missed
-        (e.g., if bot was offline) and processes them accordingly.
-        
-        Returns detailed report of what was found, backfilled, and processed.
-        """
-        results = {}
-        
-        # Find the keyword subscription
+        """Manual verification crawl for /check covering all providers."""
+
         normalized_keyword = self.normalize_keyword(keyword_text)
         keyword = await self.db.get_keyword_by_normalized(user_id, normalized_keyword, active_only=True)
-        
+
         if not keyword:
             return {
                 "error": f"Keine aktive Überwachung für '{keyword_text}' gefunden.",
-                "pages_scanned": 0,
-                "total_count": 0,
-                "backfilled": 0,
-                "pushed": 0,
-                "absorbed": 0
+                "providers": {},
+                "backfill": {
+                    "unprocessed": 0,
+                    "new_notifications": 0,
+                    "already_known": 0,
+                },
             }
-        
-        provider = self.providers["militaria321.com"]
-        
-        try:
-            logger.info(f"Starting manual backfill check for '{keyword_text}' (user: {user_id})")
-            
-            # Perform full crawl to get current state
-            result = await provider.search(
-                keyword=keyword.original_keyword,
-                crawl_all=True,
-                max_pages_override=MAX_PAGES_PER_CYCLE
+
+        enabled_platforms = set(keyword.platforms or [])
+        if not enabled_platforms:
+            enabled_platforms = set(self.providers.keys())
+
+        provider_reports: dict[str, dict] = {}
+        all_items: List[Listing] = []
+        backfilled_items: List[Listing] = []
+        seen_this_run: set[str] = set()
+        already_known_count = 0
+
+        for platform_name, provider in self.providers.items():
+            if platform_name not in enabled_platforms:
+                provider_reports[platform_name] = {
+                    "platform": platform_name,
+                    "enabled": False,
+                    "pages": 0,
+                    "items": 0,
+                    "errors": "deaktiviert",
+                }
+                logger.info(
+                    {
+                        "event": "manual_check",
+                        "keyword": keyword.normalized_keyword,
+                        "platform": platform_name,
+                        "pages": 0,
+                        "items": 0,
+                        "errors": "deaktiviert",
+                    }
+                )
+                continue
+
+            try:
+                logger.info(
+                    {
+                        "event": "manual_check_start",
+                        "keyword": keyword.normalized_keyword,
+                        "platform": platform_name,
+                    }
+                )
+
+                result = await provider.search(
+                    keyword=keyword.original_keyword,
+                    crawl_all=True,
+                    max_pages_override=MAX_PAGES_PER_CYCLE,
+                )
+
+                provider_reports[platform_name] = {
+                    "platform": platform_name,
+                    "enabled": True,
+                    "pages": result.pages_scanned or 0,
+                    "items": len(result.items),
+                    "errors": None,
+                }
+
+                for item in result.items:
+                    listing_key = self._build_canonical_listing_key(item)
+
+                    if listing_key in seen_this_run:
+                        continue
+                    seen_this_run.add(listing_key)
+
+                    item.platform_id = listing_key.split(":", 1)[1]
+                    all_items.append(item)
+
+                    if listing_key not in keyword.seen_listing_keys:
+                        backfilled_items.append(item)
+                    else:
+                        already_known_count += 1
+
+            except Exception as exc:
+                error_msg = str(exc)[:400]
+                provider_reports[platform_name] = {
+                    "platform": platform_name,
+                    "enabled": True,
+                    "pages": 0,
+                    "items": 0,
+                    "errors": error_msg,
+                }
+                logger.error(f"Error during manual check for {platform_name}: {error_msg}")
+
+            logger.info(
+                {
+                    "event": "manual_check",
+                    "keyword": keyword.normalized_keyword,
+                    "platform": platform_name,
+                    "pages": provider_reports[platform_name]["pages"],
+                    "items": provider_reports[platform_name]["items"],
+                    "errors": provider_reports[platform_name]["errors"],
+                }
             )
-            
-            # Track what we find and process
-            all_items = result.items
-            seen_this_run = set()
-            backfilled_items = []
-            pushed_count = 0
-            absorbed_count = 0
-            
-            logger.info(f"Manual backfill: found {len(all_items)} total items across {result.pages_scanned} pages")
-            
-            # Process and deduplicate items
-            for item in all_items:
-                listing_key = self._build_canonical_listing_key(item)
-                
-                # Skip duplicates within this run
-                if listing_key in seen_this_run:
-                    continue
-                seen_this_run.add(listing_key)
-                
-                # Update item with canonical key
-                item.platform_id = listing_key.split(':', 1)[1]
-                
-                # Check if this is a missing/unprocessed item
-                if listing_key not in keyword.seen_listing_keys:
-                    backfilled_items.append(item)
-                    logger.info(f"Backfill candidate: {listing_key} - {item.title[:50]}...")
-            
-            logger.info(f"Manual backfill: found {len(backfilled_items)} unprocessed items to evaluate")
-            
-            # Enrich backfilled items with posted_ts if needed
-            if backfilled_items:
-                await provider.fetch_posted_ts_batch(backfilled_items, concurrency=DETAIL_CONCURRENCY)
-            
-            # Process backfilled items through normal newness gating
-            new_seen_keys = []
-            notifications_queued = []
-            
+
+        logger.info(
+            {
+                "event": "manual_check_summary",
+                "keyword": keyword.normalized_keyword,
+                "backfill_candidates": len(backfilled_items),
+                "already_known": already_known_count,
+            }
+        )
+
+        if backfilled_items:
+            grouped: dict[str, List[Listing]] = {}
             for item in backfilled_items:
-                listing_key = self._build_canonical_listing_key(item)
-                
-                # Add to seen set regardless (backfill/catch-up)
-                new_seen_keys.append(listing_key)
-                
-                # Apply newness gating for notifications
-                if self._is_new_listing(item, keyword):
-                    # This is a genuinely new item that should have been pushed
-                    notifications_queued.append(item)
-                    pushed_count += 1
-                    
-                    logger.info({
+                grouped.setdefault(item.platform, []).append(item)
+
+            for platform_name, items in grouped.items():
+                provider = self.providers.get(platform_name)
+                if provider and hasattr(provider, "fetch_posted_ts_batch"):
+                    try:
+                        await provider.fetch_posted_ts_batch(items, concurrency=DETAIL_CONCURRENCY)
+                    except Exception as exc:
+                        logger.warning(f"Detail fetch failed for {platform_name}: {exc}")
+                self._apply_posted_ts_fallback(items)
+
+        self._apply_posted_ts_fallback(all_items)
+
+        new_seen_keys: List[str] = []
+        notifications_queued: List[Listing] = []
+        pushed_count = 0
+        absorbed_count = 0
+
+        for item in backfilled_items:
+            listing_key = self._build_canonical_listing_key(item)
+            new_seen_keys.append(listing_key)
+
+            if self._is_new_listing(item, keyword):
+                notifications_queued.append(item)
+                pushed_count += 1
+                logger.info(
+                    {
                         "event": "backfill_decision",
                         "platform": item.platform,
                         "keyword_norm": keyword.normalized_keyword,
@@ -844,12 +916,14 @@ class SearchService:
                         "posted_ts_utc": item.posted_ts.isoformat() if item.posted_ts else None,
                         "since_ts_utc": keyword.since_ts.isoformat(),
                         "decision": "backfill_push",
-                        "reason": "posted_ts>=since_ts" if item.posted_ts else "grace_window_allowed"
-                    })
-                else:
-                    absorbed_count += 1
-                    reason = self._get_filter_reason(item, keyword)
-                    logger.info({
+                        "reason": "posted_ts>=since_ts" if item.posted_ts else "grace_window_allowed",
+                    }
+                )
+            else:
+                absorbed_count += 1
+                reason = self._get_filter_reason(item, keyword)
+                logger.info(
+                    {
                         "event": "backfill_decision",
                         "platform": item.platform,
                         "keyword_norm": keyword.normalized_keyword,
@@ -857,80 +931,66 @@ class SearchService:
                         "posted_ts_utc": item.posted_ts.isoformat() if item.posted_ts else None,
                         "since_ts_utc": keyword.since_ts.isoformat(),
                         "decision": "backfill_absorb",
-                        "reason": reason
-                    })
-            
-            # Update seen_listing_keys with backfilled items
-            if new_seen_keys:
-                await self.db.db.keywords.update_one(
-                    {"id": keyword.id},
-                    {"$addToSet": {"seen_listing_keys": {"$each": new_seen_keys}}}
+                        "reason": reason,
+                    }
                 )
-                logger.info(f"Backfilled {len(new_seen_keys)} items into seen_listing_keys for '{keyword_text}'")
-            
-            # Send notifications for genuinely new items found during backfill
-            actual_pushed = 0
-            if notifications_queued:
-                # Import here to avoid circular dependency
-                from simple_bot import notification_service as global_notification_service
-                
-                for item in notifications_queued:
-                    try:
-                        # Get user's telegram ID
-                        user = await self.db.get_user_by_id(user_id)
-                        if user:
-                            success = await global_notification_service.send_new_item_notification(
-                                user.telegram_id, keyword, item
-                            )
-                            if success:
-                                actual_pushed += 1
-                    except Exception as e:
-                        listing_key = self._build_canonical_listing_key(item)
-                        logger.error(f"Failed to send backfill notification for {listing_key}: {e}")
-            
-            # Store/update all listings in database for completeness
-            for item in all_items:
-                stored_listing = StoredListing(
-                    platform=item.platform,
-                    platform_id=item.platform_id,
-                    title=item.title,
-                    url=item.url,
-                    price_value=item.price_value,
-                    price_currency=item.price_currency,
-                    image_url=item.image_url,
-                    location=item.location,
-                    condition=item.condition,
-                    seller_name=item.seller_name,
-                    posted_ts=item.posted_ts,
-                    end_ts=item.end_ts
-                )
-                await self.db.upsert_listing(stored_listing)
-            
-            results = {
-                "platform_name": provider.platform_name,
-                "pages_scanned": result.pages_scanned or 1,
-                "total_count": len(all_items),
-                "backfilled": len(backfilled_items),
-                "pushed": actual_pushed,
-                "absorbed": absorbed_count,
-                "error": None
-            }
-            
-            logger.info(f"Manual backfill complete: {results}")
-            
-        except Exception as e:
-            logger.error(f"Error in manual backfill check: {e}")
-            results = {
-                "platform_name": provider.platform_name,
-                "pages_scanned": 0,
-                "total_count": 0,
-                "backfilled": 0,
-                "pushed": 0,
-                "absorbed": 0,
-                "error": str(e)
-            }
-        
-        return results
+
+        if new_seen_keys:
+            await self.db.db.keywords.update_one(
+                {"id": keyword.id},
+                {"$addToSet": {"seen_listing_keys": {"$each": new_seen_keys}}},
+            )
+            logger.info(
+                {
+                    "event": "backfill_seen_update",
+                    "keyword": keyword.normalized_keyword,
+                    "added": len(new_seen_keys),
+                }
+            )
+
+        actual_pushed = 0
+        if notifications_queued:
+            from simple_bot import notification_service as global_notification_service
+
+            for item in notifications_queued:
+                try:
+                    user = await self.db.get_user_by_id(user_id)
+                    if user:
+                        success = await global_notification_service.send_new_item_notification(
+                            user.telegram_id, keyword, item
+                        )
+                        if success:
+                            actual_pushed += 1
+                except Exception as exc:
+                    listing_key = self._build_canonical_listing_key(item)
+                    logger.error(f"Failed to send backfill notification for {listing_key}: {exc}")
+
+        for item in all_items:
+            stored_listing = StoredListing(
+                platform=item.platform,
+                platform_id=item.platform_id,
+                title=item.title,
+                url=item.url,
+                price_value=item.price_value,
+                price_currency=item.price_currency,
+                image_url=item.image_url,
+                location=item.location,
+                condition=item.condition,
+                seller_name=item.seller_name,
+                posted_ts=item.posted_ts,
+                end_ts=item.end_ts,
+            )
+            await self.db.upsert_listing(stored_listing)
+
+        return {
+            "error": None,
+            "providers": provider_reports,
+            "backfill": {
+                "unprocessed": len(backfilled_items),
+                "new_notifications": actual_pushed,
+                "already_known": already_known_count + absorbed_count,
+            },
+        }
     
     def _is_new_listing(self, item: Listing, keyword: Keyword) -> bool:
         """Strict newness logic as specified in requirements

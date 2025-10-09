@@ -17,12 +17,12 @@ from aiogram.enums import ParseMode
 
 from database import DatabaseManager
 from models import User, Keyword
-from services.search_service import SearchService
+from services.search_service import SearchService, POLL_INTERVAL_SECONDS
 from services.notification_service import NotificationService
 from scheduler import PollingScheduler, stop_keyword_job
 from zoneinfo import ZoneInfo
 from providers.militaria321 import Militaria321Provider
-from utils.text import br_join, b, i, a, code, fmt_ts_de, fmt_price_de, safe_truncate
+from utils.text import br_join, b, i, a, code, fmt_ts_de, fmt_price_de, htmlesc
 
 # Load environment
 load_dotenv()
@@ -52,50 +52,6 @@ async def ensure_user(telegram_user) -> User:
         await db_manager.create_user(user)
     
     return user
-
-async def _format_verification_block(last_item_meta: dict, keyword_text: str, search_service) -> str:
-    """Format verification block for last found listing"""
-    listing = last_item_meta["listing"]
-    page_index = last_item_meta["page_index"]
-    
-    # If posted_ts is missing, fetch it for display only
-    had_to_fetch_detail = False
-    if listing.posted_ts is None:
-        try:
-            provider = search_service.providers.get("militaria321.com")
-            if provider:
-                await provider.fetch_posted_ts_batch([listing], concurrency=1)
-                had_to_fetch_detail = True
-        except Exception as e:
-            logger.warning(f"Failed to fetch posted_ts for verification: {e}")
-    
-    # Log verification event
-    logger.info({
-        "event": "verification_last_item",
-        "platform": listing.platform,
-        "page_index": page_index,
-        "listing_key": f"{listing.platform}:{listing.platform_id}",
-        "posted_ts_utc": listing.posted_ts.isoformat() if listing.posted_ts else None,
-        "had_to_fetch_detail": had_to_fetch_detail
-    })
-    
-    # Format timestamps and price using utilities
-    now_berlin = fmt_ts_de(datetime.now(timezone.utc))
-    posted_berlin = fmt_ts_de(listing.posted_ts)
-    price_formatted = fmt_price_de(listing.price_value, listing.price_currency)
-    
-    # Build verification block using HTML formatting
-    return br_join([
-        f"🎖️ Der letzte gefundene Artikel auf Seite {page_index}",
-        "",
-        f"🔍 Suchbegriff: {keyword_text}",
-        f"📝 Titel: {safe_truncate(listing.title, 80)}",
-        f"💰 {price_formatted}",
-        "",
-        f"🌐 Plattform: {a('militaria321.com', listing.url)}",
-        f"🕐 Gefunden: {now_berlin}",
-        f"✏️ Eingestellt am: {posted_berlin}"
-    ])
 
 async def cmd_search(message: Message):
     """Handle /search <keyword> command"""
@@ -205,7 +161,7 @@ async def cmd_search(message: Message):
         await db_manager.create_keyword(keyword)
         
         # Perform full baseline seed with state machine
-        baseline_items, last_item_meta = await search_service.full_baseline_seed(keyword_text, keyword.id)
+        baseline_items, _ = await search_service.full_baseline_seed(keyword_text, keyword.id)
         
         # Seed seen_listing_keys with all baseline results
         seen_keys = []
@@ -224,23 +180,12 @@ async def cmd_search(message: Message):
             polling_scheduler.add_keyword_job(updated_keyword, user.telegram_id)
         
         # Format main response message
-        response_lines = [
-            f"Suche eingerichtet: {b(keyword_text)}",
-            "",
-            "✅ Baseline abgeschlossen – Ich benachrichtige Sie künftig nur bei neuen Angeboten.",
-            "⏱️ Frequenz: Alle 60 Sekunden",
-            "",
-            f"📊 {len(seen_keys)} Angebote als Baseline erfasst"
-        ]
-        
-        # Add verification block if we have a last item
-        if last_item_meta and last_item_meta.get("listing"):
-            verification_text = await _format_verification_block(
-                last_item_meta, keyword_text, search_service
-            )
-            response_lines.extend(["", verification_text])
-        
-        response_text = br_join(response_lines)
+        response_text = br_join([
+            f"Suche eingerichtet: <b>{htmlesc(keyword_text)}</b>",
+            "✅ <b>Baseline abgeschlossen</b> – Ich benachrichtige Sie künftig nur bei neuen Angeboten.",
+            f"⏱️ Frequenz: Alle {POLL_INTERVAL_SECONDS} Sekunden",
+            f"📊 {len(seen_keys)} Angebote als Baseline erfasst",
+        ])
         await status_msg.edit_text(response_text, parse_mode="HTML")
         logger.info({"event": "send_text", "len": len(response_text), "preview": response_text[:120].replace("\n", "⏎")})
         
@@ -294,49 +239,63 @@ async def cmd_check(message: Message):
             logger.info({"event": "send_text", "len": len(error_text), "preview": error_text[:120].replace("\n", "⏎")})
             return
         
-        # Format comprehensive backfill report
-        response_lines = [
-            f"🔍 {b('Manuelle Verifikation abgeschlossen')}: {b(keyword_text)}",
-            ""
+        providers = result.get("providers", {})
+        backfill = result.get("backfill", {})
+
+        platform_sections = [
+            ("militaria321.com", "https://militaria321.com"),
+            ("egun.de", "https://egun.de/market"),
         ]
-        
-        # Basic statistics
-        response_lines.extend([
-            f"📊 {b('Suchergebnisse:')}",
-            f"• Plattform: {result['platform_name']}",
-            f"• Seiten durchsucht: {result['pages_scanned']}",
-            f"• Artikel gefunden: {result['total_count']}",
-            ""
-        ])
-        
-        # Backfill results
-        if result['backfilled'] > 0:
-            response_lines.extend([
-                f"🔄 {b('Nachbearbeitung (Backfill):')}",
-                f"• Unverarbeitete Artikel: {result['backfilled']}",
-                f"• Neue Benachrichtigungen: {result['pushed']}",
-                f"• Bereits bekannte Artikel: {result['absorbed']}",
-                ""
-            ])
-            
-            if result['pushed'] > 0:
-                pushed_count = result['pushed']
-                response_lines.append(f"✅ {b(f'{pushed_count} neue Artikel')} wurden nachträglich benachrichtigt!")
+
+        response_lines = [
+            f"🔎 <b>Manuelle Verifikation abgeschlossen:</b> {htmlesc(keyword_text)}",
+            "",
+            "📈 <b>Suchergebnisse:</b>",
+        ]
+
+        for platform_name, url in platform_sections:
+            data = providers.get(platform_name, {})
+            label = htmlesc(platform_name)
+
+            if not data or not data.get("enabled", True):
+                response_lines.append(f"• Plattform: {label} — (deaktiviert)")
             else:
-                response_lines.append("ℹ️ Alle gefundenen Artikel waren bereits bekannt oder zu alt.")
-        else:
-            response_lines.extend([
-                f"✅ {b('Status: Vollständig synchron')}",
-                "Alle Artikel wurden bereits verarbeitet.",
-                "Keine Nachbearbeitung erforderlich."
-            ])
-        
+                response_lines.append(f"• Plattform: <a href=\"{htmlesc(url)}\">{label}</a>")
+                response_lines.append(f"• Seiten durchsucht: {data.get('pages', 0)}")
+                response_lines.append(f"• Artikel gefunden: {data.get('items', 0)}")
+                errors = data.get("errors")
+                if errors:
+                    response_lines.append(f"• Fehler: {htmlesc(errors)}")
+                else:
+                    response_lines.append("• Fehler: Keine")
+            response_lines.append("")
+
+        if response_lines and response_lines[-1] == "":
+            response_lines.pop()
+
+        unprocessed = backfill.get("unprocessed", 0)
+        new_notifications = backfill.get("new_notifications", 0)
+        already_known = backfill.get("already_known", 0)
+
         response_lines.extend([
             "",
-            f"💡 {i('Tipp: Verwenden Sie /list für Überwachungsstatus')}"
+            "🔁 <b>Nachbearbeitung (Backfill):</b>",
+            f"• Unverarbeitete Artikel: {unprocessed}",
+            f"• Neue Benachrichtigungen: {new_notifications}",
+            f"• Bereits bekannte Artikel: {already_known}",
+            "",
         ])
-        
-        response_text = br_join(response_lines)
+
+        if new_notifications > 0:
+            response_lines.append(
+                f"✅ {new_notifications} neue Benachrichtigungen wurden nachträglich versendet."
+            )
+        else:
+            response_lines.append("ℹ️ Alle gefundenen Artikel sind entweder bereits bekannt oder zu alt.")
+
+        response_lines.append("💡 Tipp: Verwenden Sie <code>/list</code> für Überwachungsstatus")
+
+        response_text = "\n".join(response_lines)
         
         await status_msg.edit_text(response_text, parse_mode="HTML")
         logger.info({"event": "send_text", "len": len(response_text), "preview": response_text[:120].replace("\n", "⏎")})
