@@ -4,6 +4,7 @@ from typing import Dict, List
 from providers.base import BaseProvider
 from providers.militaria321 import Militaria321Provider
 from providers.egun import EgunProvider
+from providers.kleinanzeigen import KleinanzeigenProvider
 
 
 def get_all_providers() -> Dict[str, BaseProvider]:
@@ -12,6 +13,10 @@ def get_all_providers() -> Dict[str, BaseProvider]:
         "militaria321.com": Militaria321Provider(),
         "egun.de": EgunProvider(),
     }
+
+    kleinanzeigen = KleinanzeigenProvider()
+    if getattr(kleinanzeigen, "enabled", True):
+        providers[kleinanzeigen.platform_name] = kleinanzeigen
     return providers
 
 

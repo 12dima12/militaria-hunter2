@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 from datetime import datetime
 from typing import Optional
@@ -9,7 +10,6 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 from database import DatabaseManager
 from models import Keyword, Listing, Notification
-from providers.militaria321 import Militaria321Provider
 from utils.text import br_join, b, i, a, code, fmt_ts_de, fmt_price_de, safe_truncate
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,8 @@ class NotificationService:
     def __init__(self, db_manager: DatabaseManager, bot: Bot):
         self.db = db_manager
         self.bot = bot
-        self.militaria321_provider = Militaria321Provider()
+        raw_admin_chat = os.environ.get("NOTIFY_ADMIN_CHAT_ID", "").strip()
+        self.admin_chat_id: Optional[int] = int(raw_admin_chat) if raw_admin_chat.isdigit() else None
     
     async def send_new_item_notification(
         self, 
@@ -92,9 +93,13 @@ class NotificationService:
         """
         # Format price and timestamps using utilities
         preis = fmt_price_de(item.price_value, item.price_currency)
+        if preis == "/" and getattr(item, "price_text", None):
+            preis = item.price_text
         gefunden = fmt_ts_de(datetime.now(ZoneInfo('UTC')))
         inseriert_am = fmt_ts_de(item.posted_ts)
-        
+        platform_label = item.platform
+        platform_link = a(platform_label, item.url) if item.url else platform_label
+
         # Build message with proper HTML formatting
         return br_join([
             f"🔎 {b('Neues Angebot gefunden')}",
@@ -102,11 +107,11 @@ class NotificationService:
             f"Suchbegriff: {keyword.original_keyword}",
             f"Titel: {safe_truncate(item.title, 80)}",
             f"Preis: {preis}",
-            f"Plattform: {a('militaria321.com', item.url)}",
+            f"Plattform: {platform_link}",
             f"Gefunden: {gefunden}",
             f"Eingestellt am: {inseriert_am}"
         ])
-    
+
     def _build_canonical_listing_key(self, item: Listing) -> str:
         """Build canonical listing key: militaria321.com:<numeric_id>"""
         # Ensure platform is lowercase and normalized
@@ -118,5 +123,44 @@ class NotificationService:
             clean_id = numeric_id.group(1)
         else:
             clean_id = item.platform_id
-        
+
         return f"{platform}:{clean_id}"
+
+    async def send_admin_event(self, event: dict) -> None:
+        """Send administrative diagnostics event if chat configured"""
+        if not self.admin_chat_id:
+            return
+
+        lines = [
+            f"⚠️ {b('Systemmeldung')}",
+            f"Plattform: {event.get('platform', 'unbekannt')}",
+            f"Status: {event.get('state', 'n/a')}"
+        ]
+
+        first_seen = event.get("first_seen")
+        if first_seen:
+            lines.append(f"Erkannt: {first_seen}")
+
+        recovered_at = event.get("recovered_at")
+        if recovered_at:
+            lines.append(f"Wieder normal: {recovered_at}")
+
+        cooldown_minutes = event.get("cooldown_minutes")
+        if cooldown_minutes:
+            lines.append(f"Cooldown: {int(cooldown_minutes)} Minuten")
+
+        cooldown_until = event.get("cooldown_until")
+        if cooldown_until:
+            lines.append(f"Gesperrt bis: {cooldown_until}")
+
+        payload = br_join(lines)
+
+        try:
+            await self.bot.send_message(
+                chat_id=self.admin_chat_id,
+                text=payload,
+                parse_mode="HTML",
+            )
+            logger.info({"event": "admin_event", "payload": payload[:120].replace("\n", "⏎")})
+        except Exception as exc:
+            logger.error({"event": "admin_event_failed", "error": str(exc)[:200]})
