@@ -35,6 +35,12 @@ class SearchService:
         self.db = db_manager
         # Initialize all registered providers in deterministic order
         self.providers = get_all_providers()
+        self.provider_status: dict[str, dict] = {name: {} for name in self.providers}
+        self.notification_service = None
+
+    def attach_notification_service(self, notification_service) -> None:
+        """Attach notification service for admin diagnostics"""
+        self.notification_service = notification_service
     
     async def search_keyword(self, keyword: Keyword, dry_run: bool = False) -> List[Listing]:
         """Search for new items with the deep pagination strategy.
@@ -69,7 +75,9 @@ class SearchService:
         
         all_new_items = []
         seen_this_run = set()  # In-run deduplication
-        
+
+        await self._ensure_keyword_platforms(keyword)
+
         # Determine polling mode: rotate has been disabled globally; ensure keywords follow suit
         stored_poll_mode = getattr(keyword, 'poll_mode', POLL_MODE)
         normalized_poll_mode = (stored_poll_mode or "").lower()
@@ -123,6 +131,8 @@ class SearchService:
                 crawl_all=True,  # Scan ALL pages to prevent missed items
                 max_pages_override=max_pages_to_scan
             )
+
+            await self._handle_provider_metadata(militaria_provider.platform_name, result.metadata)
             
             militaria_pages_scanned = result.pages_scanned or 0
             all_items = result.items
@@ -173,6 +183,7 @@ class SearchService:
                         since_ts=keyword.since_ts,
                         crawl_all=True
                     )
+                    await self._handle_provider_metadata(platform_name, provider_result.metadata)
                 except Exception as exc:
                     logger.error(f"Error searching {platform_name}: {exc}")
                     continue
@@ -386,7 +397,56 @@ class SearchService:
         for item in items:
             if item.platform == "egun.de" and item.posted_ts is None:
                 item.posted_ts = fallback_ts
-    
+
+    async def _handle_provider_metadata(self, platform_name: str, metadata: Optional[dict]) -> None:
+        metadata = metadata or {}
+        self.provider_status[platform_name] = metadata
+        events = metadata.get("events") or []
+        if not events:
+            return
+
+        if not self.notification_service:
+            return
+
+        for event in events:
+            if event.get("event") != "captcha_detected":
+                continue
+            try:
+                await self.notification_service.send_admin_event(event)
+            except Exception as exc:
+                logger.error(
+                    {
+                        "event": "admin_notify_failed",
+                        "platform": platform_name,
+                        "error": str(exc),
+                    }
+                )
+
+    async def _ensure_keyword_platforms(self, keyword: Keyword) -> List[str]:
+        expected_order = list(self.providers.keys())
+        current = list(keyword.platforms or [])
+        filtered = [p for p in current if p in expected_order]
+
+        for provider_name in expected_order:
+            if provider_name not in filtered:
+                filtered.append(provider_name)
+
+        if filtered != current:
+            keyword.platforms = filtered
+            await self.db.db.keywords.update_one(
+                {"id": keyword.id},
+                {"$set": {"platforms": filtered}}
+            )
+            logger.info(
+                {
+                    "event": "platforms_sync",
+                    "keyword": keyword.normalized_keyword,
+                    "platforms": filtered,
+                }
+            )
+
+        return filtered
+
     async def _update_keyword_telemetry(self, keyword: Keyword):
         """Update keyword telemetry in database"""
         await self.db.db.keywords.update_one(
@@ -503,7 +563,9 @@ class SearchService:
                     keyword=keyword.original_keyword,
                     crawl_all=False  # Just first page for probe
                 )
-                
+
+                await self._handle_provider_metadata(platform_name, result.metadata)
+
                 # Count auction links by checking if items have platform_ids
                 auctions_count = len([item for item in result.items if item.platform_id])
                 parsed_count = len(result.items)
@@ -692,7 +754,9 @@ class SearchService:
                     keyword=keyword_text,
                     crawl_all=True  # Baseline mode - all pages
                 )
-                
+
+                await self._handle_provider_metadata(platform_name, result.metadata)
+
                 provider_results[platform_name] = {
                     "pages_scanned": result.pages_scanned or 0,
                     "items_collected": len(result.items)
@@ -779,15 +843,13 @@ class SearchService:
                 },
             }
 
-        enabled_platforms = set(keyword.platforms or [])
-        if not enabled_platforms:
-            enabled_platforms = set(self.providers.keys())
+        enabled_platforms = set(await self._ensure_keyword_platforms(keyword))
 
         provider_reports: dict[str, dict] = {}
         all_items: List[Listing] = []
-        backfilled_items: List[Listing] = []
         seen_this_run: set[str] = set()
-        already_known_count = 0
+        per_platform_unseen: dict[str, List[Listing]] = {}
+        per_platform_stats: dict[str, dict[str, int]] = {}
 
         for platform_name, provider in self.providers.items():
             if platform_name not in enabled_platforms:
@@ -797,6 +859,7 @@ class SearchService:
                     "pages": 0,
                     "items": 0,
                     "errors": "deaktiviert",
+                    "metadata": self.provider_status.get(platform_name, {}),
                 }
                 logger.info(
                     {
@@ -825,12 +888,17 @@ class SearchService:
                     max_pages_override=MAX_PAGES_PER_CYCLE,
                 )
 
+                await self._handle_provider_metadata(platform_name, result.metadata)
+                metadata = result.metadata or {}
+
                 provider_reports[platform_name] = {
                     "platform": platform_name,
                     "enabled": True,
                     "pages": result.pages_scanned or 0,
                     "items": len(result.items),
                     "errors": None,
+                    "metadata": metadata,
+                    "last_error": metadata.get("last_error"),
                 }
 
                 for item in result.items:
@@ -843,10 +911,15 @@ class SearchService:
                     item.platform_id = listing_key.split(":", 1)[1]
                     all_items.append(item)
 
+                    stats = per_platform_stats.setdefault(
+                        platform_name, {"unseen": 0, "already_known": 0, "pushed": 0}
+                    )
+
                     if listing_key not in keyword.seen_listing_keys:
-                        backfilled_items.append(item)
+                        stats["unseen"] += 1
+                        per_platform_unseen.setdefault(platform_name, []).append(item)
                     else:
-                        already_known_count += 1
+                        stats["already_known"] += 1
 
             except Exception as exc:
                 error_msg = str(exc)[:400]
@@ -856,6 +929,7 @@ class SearchService:
                     "pages": 0,
                     "items": 0,
                     "errors": error_msg,
+                    "metadata": self.provider_status.get(platform_name, {}),
                 }
                 logger.error(f"Error during manual check for {platform_name}: {error_msg}")
 
@@ -870,70 +944,67 @@ class SearchService:
                 }
             )
 
+        total_unseen = sum(stats.get("unseen", 0) for stats in per_platform_stats.values())
+        already_known_total = sum(stats.get("already_known", 0) for stats in per_platform_stats.values())
+
         logger.info(
             {
                 "event": "manual_check_summary",
                 "keyword": keyword.normalized_keyword,
-                "backfill_candidates": len(backfilled_items),
-                "already_known": already_known_count,
+                "backfill_candidates": total_unseen,
+                "already_known": already_known_total,
             }
         )
 
-        if backfilled_items:
-            grouped: dict[str, List[Listing]] = {}
-            for item in backfilled_items:
-                grouped.setdefault(item.platform, []).append(item)
-
-            for platform_name, items in grouped.items():
-                provider = self.providers.get(platform_name)
-                if provider and hasattr(provider, "fetch_posted_ts_batch"):
-                    try:
-                        await provider.fetch_posted_ts_batch(items, concurrency=DETAIL_CONCURRENCY)
-                    except Exception as exc:
-                        logger.warning(f"Detail fetch failed for {platform_name}: {exc}")
-                self._apply_posted_ts_fallback(items)
+        for platform_name, items in per_platform_unseen.items():
+            provider = self.providers.get(platform_name)
+            if provider and hasattr(provider, "fetch_posted_ts_batch"):
+                try:
+                    await provider.fetch_posted_ts_batch(items, concurrency=DETAIL_CONCURRENCY)
+                except Exception as exc:
+                    logger.warning(f"Detail fetch failed for {platform_name}: {exc}")
+            self._apply_posted_ts_fallback(items)
 
         self._apply_posted_ts_fallback(all_items)
 
         new_seen_keys: List[str] = []
-        notifications_queued: List[Listing] = []
-        pushed_count = 0
         absorbed_count = 0
+        notifications_by_platform: dict[str, List[Listing]] = {}
 
-        for item in backfilled_items:
-            listing_key = self._build_canonical_listing_key(item)
-            new_seen_keys.append(listing_key)
+        for platform_name, items in per_platform_unseen.items():
+            for item in items:
+                listing_key = self._build_canonical_listing_key(item)
+                new_seen_keys.append(listing_key)
 
-            if self._is_new_listing(item, keyword):
-                notifications_queued.append(item)
-                pushed_count += 1
-                logger.info(
-                    {
-                        "event": "backfill_decision",
-                        "platform": item.platform,
-                        "keyword_norm": keyword.normalized_keyword,
-                        "listing_key": listing_key,
-                        "posted_ts_utc": item.posted_ts.isoformat() if item.posted_ts else None,
-                        "since_ts_utc": keyword.since_ts.isoformat(),
-                        "decision": "backfill_push",
-                        "reason": "posted_ts>=since_ts" if item.posted_ts else "grace_window_allowed",
-                    }
-                )
-            else:
-                absorbed_count += 1
-                reason = self._get_filter_reason(item, keyword)
-                logger.info(
-                    {
-                        "event": "backfill_decision",
-                        "platform": item.platform,
-                        "keyword_norm": keyword.normalized_keyword,
-                        "listing_key": listing_key,
-                        "posted_ts_utc": item.posted_ts.isoformat() if item.posted_ts else None,
-                        "since_ts_utc": keyword.since_ts.isoformat(),
-                        "decision": "backfill_absorb",
-                        "reason": reason,
-                    }
-                )
+                if self._is_new_listing(item, keyword):
+                    notifications_by_platform.setdefault(platform_name, []).append(item)
+                    logger.info(
+                        {
+                            "event": "backfill_decision",
+                            "platform": item.platform,
+                            "keyword_norm": keyword.normalized_keyword,
+                            "listing_key": listing_key,
+                            "posted_ts_utc": item.posted_ts.isoformat() if item.posted_ts else None,
+                            "since_ts_utc": keyword.since_ts.isoformat(),
+                            "decision": "backfill_push",
+                            "reason": "posted_ts>=since_ts" if item.posted_ts else "grace_window_allowed",
+                        }
+                    )
+                else:
+                    absorbed_count += 1
+                    reason = self._get_filter_reason(item, keyword)
+                    logger.info(
+                        {
+                            "event": "backfill_decision",
+                            "platform": item.platform,
+                            "keyword_norm": keyword.normalized_keyword,
+                            "listing_key": listing_key,
+                            "posted_ts_utc": item.posted_ts.isoformat() if item.posted_ts else None,
+                            "since_ts_utc": keyword.since_ts.isoformat(),
+                            "decision": "backfill_absorb",
+                            "reason": reason,
+                        }
+                    )
 
         if new_seen_keys:
             await self.db.db.keywords.update_one(
@@ -949,21 +1020,38 @@ class SearchService:
             )
 
         actual_pushed = 0
-        if notifications_queued:
+        if notifications_by_platform:
             from simple_bot import notification_service as global_notification_service
 
-            for item in notifications_queued:
-                try:
-                    user = await self.db.get_user_by_id(user_id)
-                    if user:
-                        success = await global_notification_service.send_new_item_notification(
-                            user.telegram_id, keyword, item
-                        )
-                        if success:
-                            actual_pushed += 1
-                except Exception as exc:
-                    listing_key = self._build_canonical_listing_key(item)
-                    logger.error(f"Failed to send backfill notification for {listing_key}: {exc}")
+            for platform_name, items in notifications_by_platform.items():
+                for item in items:
+                    try:
+                        user = await self.db.get_user_by_id(user_id)
+                        if user:
+                            success = await global_notification_service.send_new_item_notification(
+                                user.telegram_id, keyword, item
+                            )
+                            if success:
+                                actual_pushed += 1
+                                stats = per_platform_stats.setdefault(
+                                    platform_name, {"unseen": 0, "already_known": 0, "pushed": 0}
+                                )
+                                stats["pushed"] += 1
+                    except Exception as exc:
+                        listing_key = self._build_canonical_listing_key(item)
+                        logger.error(f"Failed to send backfill notification for {listing_key}: {exc}")
+
+        for platform_name, report in provider_reports.items():
+            metadata = report.get("metadata") or self.provider_status.get(platform_name, {})
+            stats = per_platform_stats.get(platform_name, {"unseen": 0, "already_known": 0, "pushed": 0})
+            report["metadata"] = metadata
+            report["unseen_candidates"] = stats.get("unseen", 0)
+            report["already_known"] = stats.get("already_known", 0)
+            report["pushed"] = stats.get("pushed", 0)
+            report.setdefault("last_error", metadata.get("last_error"))
+            report["since_ts"] = fmt_ts_de(keyword.since_ts)
+            report["cooldown_active"] = metadata.get("cooldown_active") if metadata else None
+            report["cooldown_until"] = metadata.get("cooldown_until") if metadata else None
 
         for item in all_items:
             stored_listing = StoredListing(
@@ -986,9 +1074,9 @@ class SearchService:
             "error": None,
             "providers": provider_reports,
             "backfill": {
-                "unprocessed": len(backfilled_items),
+                "unprocessed": total_unseen,
                 "new_notifications": actual_pushed,
-                "already_known": already_known_count + absorbed_count,
+                "already_known": already_known_total + absorbed_count,
             },
         }
     

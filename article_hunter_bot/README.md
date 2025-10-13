@@ -1,10 +1,10 @@
 # Telegram Article Hunter Bot
 
-A sophisticated Telegram bot that monitors militaria321.com and egun.de for new listings matching user-defined keywords, delivering immediate push notifications with deep pagination support to ensure no new items are missed.
+A sophisticated Telegram bot that monitors militaria321.com, egun.de und kleinanzeigen.de for new listings matching user-defined keywords, delivering immediate push notifications with deep pagination support to ensure no new items are missed.
 
 ## Features
 
-- **Multi-Platform Monitoring**: Watches militaria321.com & egun.de with shared newness gating
+- **Multi-Platform Monitoring**: Watches militaria321.com, egun.de & kleinanzeigen.de with shared newness gating
 - **Full-Scan Deep Pagination**: Monitors all pages, solving militaria321.com's end-date sorting issue
 - **Legacy Rotation Migration**: Old rotate-mode subscriptions are auto-upgraded to full scans
 - **German Commands**: `/search`, `/list`, `/check`, `/delete`, `/hilfe`
@@ -34,7 +34,7 @@ A sophisticated Telegram bot that monitors militaria321.com and egun.de for new 
    TELEGRAM_BOT_TOKEN=your_bot_token_here
    MONGO_URL=mongodb://mongo:27017
    DB_NAME=article_hunter
-   
+
    # Deep Pagination Configuration (Optional)
    POLL_MODE=full                # Full-scan enforced; rotate mode disabled
    PRIMARY_PAGES=1               # Always scan these front pages
@@ -43,6 +43,16 @@ A sophisticated Telegram bot that monitors militaria321.com and egun.de for new 
    DETAIL_CONCURRENCY=4          # Max concurrent detail page fetches
    GRACE_MINUTES=60              # Grace period for items without timestamp
    POLL_INTERVAL_SECONDS=60      # Polling frequency
+
+   # Kleinanzeigen provider (optional overrides)
+   ENABLE_KLEINANZEIGEN=true     # Disable only if platform should be skipped
+   KA_BASE_DELAY_SEC=2.8         # Polling delay between requests
+   KA_BASELINE_DELAY_SEC=5.0     # Baseline delay between requests
+   KA_MAX_RETRIES=3              # Request retries before failing
+   KA_BACKOFF_429_MIN=20         # Minutes cooldown after HTTP 429
+   KA_BACKOFF_403_HOURS=6        # Hours cooldown after HTTP 403
+   KA_COOLDOWN_ON_CAPTCHA_MIN=45 # Minutes cooldown after CAPTCHA detection
+   NOTIFY_ADMIN_CHAT_ID=0        # Telegram chat for operator alerts (optional)
    ```
 
 3. **Run with Docker Compose:**
@@ -102,6 +112,19 @@ Result: Kein Artikel wird übersehen.
 | `POLL_WINDOW` | `5` | Pages in rotating window |
 | `MAX_PAGES_PER_CYCLE` | `40` | Hard limit per cycle |
 
+### Kleinanzeigen Provider Controls
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ENABLE_KLEINANZEIGEN` | `true` | Toggle kleinanzeigen.de provider |
+| `KA_BASE_DELAY_SEC` | `2.8` | Base delay between polling requests |
+| `KA_BASELINE_DELAY_SEC` | `5.0` | Delay between baseline requests |
+| `KA_MAX_RETRIES` | `3` | Max retries per request |
+| `KA_BACKOFF_429_MIN` | `20` | Cooldown minutes after 429 responses |
+| `KA_BACKOFF_403_HOURS` | `6` | Cooldown hours after 403 responses |
+| `KA_COOLDOWN_ON_CAPTCHA_MIN` | `45` | Initial cooldown minutes after CAPTCHA |
+| `NOTIFY_ADMIN_CHAT_ID` | `0` | Telegram chat ID for admin diagnostics |
+
 ### Monitoring
 
 The `/list` command shows enhanced telemetry:
@@ -110,7 +133,7 @@ The `/list` command shows enhanced telemetry:
 Status: ✅ Läuft — Letzte Prüfung erfolgreich
 Letzte Prüfung: 05.10.2025 16:19 Uhr — Letzter Erfolg: 05.10.2025 16:19 Uhr
 Baseline: complete
-Plattformen: militaria321.com, egun.de
+Plattformen: militaria321.com, egun.de, kleinanzeigen.de
 Poll: Modus: full (Alle Seiten) — Seiten: ~45
 ```
 
@@ -147,7 +170,7 @@ Ihre aktiven Überwachungen:
 Status: ✅ Läuft — Letzte Prüfung erfolgreich  
 Letzte Prüfung: 05.10.2025 16:19 Uhr — Letzter Erfolg: 05.10.2025 16:19 Uhr
 Baseline: complete
-Plattformen: militaria321.com, egun.de
+Plattformen: militaria321.com, egun.de, kleinanzeigen.de
 Poll: Modus: full (Alle Seiten) — Seiten: ~45
 
 [🔍 Diagnostik] [🗑️ Löschen]

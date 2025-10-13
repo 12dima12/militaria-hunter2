@@ -1,3 +1,4 @@
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, List
@@ -14,6 +15,7 @@ class Listing:
     url: str
     price_value: Optional[float] = None
     price_currency: Optional[str] = None  # "EUR", "USD", etc.
+    price_text: Optional[str] = None      # Raw price text if parsing unreliable
     image_url: Optional[str] = None
     location: Optional[str] = None
     condition: Optional[str] = None
@@ -32,6 +34,7 @@ class SearchResult:
     has_more: bool = False
     pages_scanned: Optional[int] = None
     last_page_index: Optional[int] = None  # Last page index processed
+    metadata: Optional[dict] = None
 
 
 # MongoDB Pydantic Models
@@ -40,6 +43,15 @@ class User(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     telegram_id: int
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+def _default_platforms() -> List[str]:
+    """Return default platform list while honoring Kleinanzeigen toggle"""
+    default = ["militaria321.com", "egun.de"]
+    enable_ka = os.environ.get("ENABLE_KLEINANZEIGEN", "true").strip().lower()
+    if enable_ka not in {"0", "false", "off"}:
+        default.append("kleinanzeigen.de")
+    return default
 
 
 class Keyword(BaseModel):
@@ -66,7 +78,7 @@ class Keyword(BaseModel):
     last_error_ts: Optional[datetime] = None  # UTC
     last_error_message: Optional[str] = None
     consecutive_errors: int = 0  # reset to 0 on success; +1 on failure
-    platforms: List[str] = Field(default_factory=lambda: ["militaria321.com", "egun.de"])
+    platforms: List[str] = Field(default_factory=_default_platforms)
     
     # Poll-related fields for deep pagination
     poll_cursor_page: int = 1  # Current page position in rotating deep-scan

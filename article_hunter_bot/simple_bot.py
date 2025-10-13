@@ -242,10 +242,11 @@ async def cmd_check(message: Message):
         providers = result.get("providers", {})
         backfill = result.get("backfill", {})
 
-        platform_sections = [
-            ("militaria321.com", "https://militaria321.com"),
-            ("egun.de", "https://egun.de/market"),
-        ]
+        platform_urls = {
+            "militaria321.com": "https://www.militaria321.com",
+            "egun.de": "https://www.egun.de/market",
+            "kleinanzeigen.de": "https://www.kleinanzeigen.de",
+        }
 
         response_lines = [
             f"🔎 <b>Manuelle Verifikation abgeschlossen:</b> {htmlesc(keyword_text)}",
@@ -253,21 +254,57 @@ async def cmd_check(message: Message):
             "📈 <b>Suchergebnisse:</b>",
         ]
 
-        for platform_name, url in platform_sections:
+        provider_order = list(search_service.providers.keys())
+
+        for platform_name in provider_order:
             data = providers.get(platform_name, {})
             label = htmlesc(platform_name)
+            url = platform_urls.get(platform_name)
 
-            if not data or not data.get("enabled", True):
+            enabled = data.get("enabled", True)
+            if not enabled:
                 response_lines.append(f"• Plattform: {label} — (deaktiviert)")
-            else:
+                response_lines.append("")
+                continue
+
+            if url:
                 response_lines.append(f"• Plattform: <a href=\"{htmlesc(url)}\">{label}</a>")
-                response_lines.append(f"• Seiten durchsucht: {data.get('pages', 0)}")
-                response_lines.append(f"• Artikel gefunden: {data.get('items', 0)}")
-                errors = data.get("errors")
-                if errors:
-                    response_lines.append(f"• Fehler: {htmlesc(errors)}")
-                else:
-                    response_lines.append("• Fehler: Keine")
+            else:
+                response_lines.append(f"• Plattform: {label}")
+
+            response_lines.append(
+                f"  Seiten: {data.get('pages', 0)} — Artikel: {data.get('items', 0)}"
+            )
+
+            unseen_candidates = data.get("unseen_candidates")
+            pushed = data.get("pushed")
+            already_known = data.get("already_known")
+            if unseen_candidates is not None or pushed is not None or already_known is not None:
+                response_lines.append(
+                    "  "
+                    + " — ".join([
+                        f"Ungeprüft: {unseen_candidates or 0}",
+                        f"Neu gesendet: {pushed or 0}",
+                        f"Bereits bekannt: {already_known or 0}",
+                    ])
+                )
+
+            errors = data.get("errors") or data.get("last_error")
+            if errors:
+                response_lines.append(f"  Fehler: {htmlesc(errors)}")
+            else:
+                response_lines.append("  Fehler: Keine")
+
+            since_ts = data.get("since_ts")
+            if since_ts:
+                response_lines.append(f"  since_ts: {htmlesc(since_ts)}")
+
+            if data.get("cooldown_active"):
+                cooldown_until = data.get("cooldown_until") or "unbekannt"
+                response_lines.append(
+                    f"  ⚠️ Cooldown aktiv bis {htmlesc(str(cooldown_until))}"
+                )
+
             response_lines.append("")
 
         if response_lines and response_lines[-1] == "":
@@ -808,7 +845,7 @@ async def cmd_hilfe(message: Message):
         "",
         f"🌍 {b('Zeitzone:')} Alle Zeiten in Deutschland (Europe/Berlin)",
         f"🔄 {b('Frequenz:')} Überwachung alle 60 Sekunden",
-        f"📱 {b('Plattformen:')} militaria321.com & egun.de",
+        f"📱 {b('Plattformen:')} {', '.join(search_service.providers.keys())}",
         "",
         f"💡 {b('Tipps:')}",
         f"• Verwenden Sie {code('/list')}, um den Status Ihrer Überwachungen zu prüfen",
@@ -841,6 +878,7 @@ async def main():
     # Initialize services
     search_service = SearchService(db_manager)
     notification_service = NotificationService(db_manager, bot)
+    search_service.attach_notification_service(notification_service)
     
     # Initialize scheduler
     polling_scheduler = PollingScheduler(db_manager, search_service, notification_service)
