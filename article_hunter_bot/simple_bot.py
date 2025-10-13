@@ -17,12 +17,12 @@ from aiogram.enums import ParseMode
 
 from database import DatabaseManager
 from models import User, Keyword
-from services.search_service import SearchService
+from services.search_service import SearchService, POLL_INTERVAL_SECONDS
 from services.notification_service import NotificationService
 from scheduler import PollingScheduler, stop_keyword_job
 from zoneinfo import ZoneInfo
 from providers.militaria321 import Militaria321Provider
-from utils.text import br_join, b, i, a, code, fmt_ts_de, fmt_price_de, safe_truncate
+from utils.text import br_join, b, i, a, code, fmt_ts_de, fmt_price_de, htmlesc
 
 # Load environment
 load_dotenv()
@@ -52,50 +52,6 @@ async def ensure_user(telegram_user) -> User:
         await db_manager.create_user(user)
     
     return user
-
-async def _format_verification_block(last_item_meta: dict, keyword_text: str, search_service) -> str:
-    """Format verification block for last found listing"""
-    listing = last_item_meta["listing"]
-    page_index = last_item_meta["page_index"]
-    
-    # If posted_ts is missing, fetch it for display only
-    had_to_fetch_detail = False
-    if listing.posted_ts is None:
-        try:
-            provider = search_service.providers.get("militaria321.com")
-            if provider:
-                await provider.fetch_posted_ts_batch([listing], concurrency=1)
-                had_to_fetch_detail = True
-        except Exception as e:
-            logger.warning(f"Failed to fetch posted_ts for verification: {e}")
-    
-    # Log verification event
-    logger.info({
-        "event": "verification_last_item",
-        "platform": listing.platform,
-        "page_index": page_index,
-        "listing_key": f"{listing.platform}:{listing.platform_id}",
-        "posted_ts_utc": listing.posted_ts.isoformat() if listing.posted_ts else None,
-        "had_to_fetch_detail": had_to_fetch_detail
-    })
-    
-    # Format timestamps and price using utilities
-    now_berlin = fmt_ts_de(datetime.now(timezone.utc))
-    posted_berlin = fmt_ts_de(listing.posted_ts)
-    price_formatted = fmt_price_de(listing.price_value, listing.price_currency)
-    
-    # Build verification block using HTML formatting
-    return br_join([
-        f"🎖️ Der letzte gefundene Artikel auf Seite {page_index}",
-        "",
-        f"🔍 Suchbegriff: {keyword_text}",
-        f"📝 Titel: {safe_truncate(listing.title, 80)}",
-        f"💰 {price_formatted}",
-        "",
-        f"🌐 Plattform: {a('militaria321.com', listing.url)}",
-        f"🕐 Gefunden: {now_berlin}",
-        f"✏️ Eingestellt am: {posted_berlin}"
-    ])
 
 async def cmd_search(message: Message):
     """Handle /search <keyword> command"""
@@ -193,18 +149,19 @@ async def cmd_search(message: Message):
     
     try:
         # Create keyword subscription
+        provider_platforms = list(search_service.providers.keys()) if search_service else ["militaria321.com", "egun.de"]
         keyword = Keyword(
             user_id=user.id,
             original_keyword=keyword_text,
             normalized_keyword=normalized,
             since_ts=datetime.utcnow(),  # Set baseline timestamp
             baseline_status="pending",
-            platforms=["militaria321.com"]
+            platforms=provider_platforms
         )
         await db_manager.create_keyword(keyword)
         
         # Perform full baseline seed with state machine
-        baseline_items, last_item_meta = await search_service.full_baseline_seed(keyword_text, keyword.id)
+        baseline_items, _ = await search_service.full_baseline_seed(keyword_text, keyword.id)
         
         # Seed seen_listing_keys with all baseline results
         seen_keys = []
@@ -223,23 +180,12 @@ async def cmd_search(message: Message):
             polling_scheduler.add_keyword_job(updated_keyword, user.telegram_id)
         
         # Format main response message
-        response_lines = [
-            f"Suche eingerichtet: {b(keyword_text)}",
-            "",
-            "✅ Baseline abgeschlossen – Ich benachrichtige Sie künftig nur bei neuen Angeboten.",
-            "⏱️ Frequenz: Alle 60 Sekunden",
-            "",
-            f"📊 {len(seen_keys)} Angebote als Baseline erfasst"
-        ]
-        
-        # Add verification block if we have a last item
-        if last_item_meta and last_item_meta.get("listing"):
-            verification_text = await _format_verification_block(
-                last_item_meta, keyword_text, search_service
-            )
-            response_lines.extend(["", verification_text])
-        
-        response_text = br_join(response_lines)
+        response_text = br_join([
+            f"Suche eingerichtet: <b>{htmlesc(keyword_text)}</b>",
+            "✅ <b>Baseline abgeschlossen</b> – Ich benachrichtige Sie künftig nur bei neuen Angeboten.",
+            f"⏱️ Frequenz: Alle {POLL_INTERVAL_SECONDS} Sekunden",
+            f"📊 {len(seen_keys)} Angebote als Baseline erfasst",
+        ])
         await status_msg.edit_text(response_text, parse_mode="HTML")
         logger.info({"event": "send_text", "len": len(response_text), "preview": response_text[:120].replace("\n", "⏎")})
         
@@ -293,49 +239,100 @@ async def cmd_check(message: Message):
             logger.info({"event": "send_text", "len": len(error_text), "preview": error_text[:120].replace("\n", "⏎")})
             return
         
-        # Format comprehensive backfill report
+        providers = result.get("providers", {})
+        backfill = result.get("backfill", {})
+
+        platform_urls = {
+            "militaria321.com": "https://www.militaria321.com",
+            "egun.de": "https://www.egun.de/market",
+            "kleinanzeigen.de": "https://www.kleinanzeigen.de",
+        }
+
         response_lines = [
-            f"🔍 {b('Manuelle Verifikation abgeschlossen')}: {b(keyword_text)}",
-            ""
+            f"🔎 <b>Manuelle Verifikation abgeschlossen:</b> {htmlesc(keyword_text)}",
+            "",
+            "📈 <b>Suchergebnisse:</b>",
         ]
-        
-        # Basic statistics
-        response_lines.extend([
-            f"📊 {b('Suchergebnisse:')}",
-            f"• Plattform: {result['platform_name']}",
-            f"• Seiten durchsucht: {result['pages_scanned']}",
-            f"• Artikel gefunden: {result['total_count']}",
-            ""
-        ])
-        
-        # Backfill results
-        if result['backfilled'] > 0:
-            response_lines.extend([
-                f"🔄 {b('Nachbearbeitung (Backfill):')}",
-                f"• Unverarbeitete Artikel: {result['backfilled']}",
-                f"• Neue Benachrichtigungen: {result['pushed']}",
-                f"• Bereits bekannte Artikel: {result['absorbed']}",
-                ""
-            ])
-            
-            if result['pushed'] > 0:
-                pushed_count = result['pushed']
-                response_lines.append(f"✅ {b(f'{pushed_count} neue Artikel')} wurden nachträglich benachrichtigt!")
+
+        provider_order = list(search_service.providers.keys())
+
+        for platform_name in provider_order:
+            data = providers.get(platform_name, {})
+            label = htmlesc(platform_name)
+            url = platform_urls.get(platform_name)
+
+            enabled = data.get("enabled", True)
+            if not enabled:
+                response_lines.append(f"• Plattform: {label} — (deaktiviert)")
+                response_lines.append("")
+                continue
+
+            if url:
+                response_lines.append(f"• Plattform: <a href=\"{htmlesc(url)}\">{label}</a>")
             else:
-                response_lines.append("ℹ️ Alle gefundenen Artikel waren bereits bekannt oder zu alt.")
-        else:
-            response_lines.extend([
-                f"✅ {b('Status: Vollständig synchron')}",
-                "Alle Artikel wurden bereits verarbeitet.",
-                "Keine Nachbearbeitung erforderlich."
-            ])
-        
+                response_lines.append(f"• Plattform: {label}")
+
+            response_lines.append(
+                f"  Seiten: {data.get('pages', 0)} — Artikel: {data.get('items', 0)}"
+            )
+
+            unseen_candidates = data.get("unseen_candidates")
+            pushed = data.get("pushed")
+            already_known = data.get("already_known")
+            if unseen_candidates is not None or pushed is not None or already_known is not None:
+                response_lines.append(
+                    "  "
+                    + " — ".join([
+                        f"Ungeprüft: {unseen_candidates or 0}",
+                        f"Neu gesendet: {pushed or 0}",
+                        f"Bereits bekannt: {already_known or 0}",
+                    ])
+                )
+
+            errors = data.get("errors") or data.get("last_error")
+            if errors:
+                response_lines.append(f"  Fehler: {htmlesc(errors)}")
+            else:
+                response_lines.append("  Fehler: Keine")
+
+            since_ts = data.get("since_ts")
+            if since_ts:
+                response_lines.append(f"  since_ts: {htmlesc(since_ts)}")
+
+            if data.get("cooldown_active"):
+                cooldown_until = data.get("cooldown_until") or "unbekannt"
+                response_lines.append(
+                    f"  ⚠️ Cooldown aktiv bis {htmlesc(str(cooldown_until))}"
+                )
+
+            response_lines.append("")
+
+        if response_lines and response_lines[-1] == "":
+            response_lines.pop()
+
+        unprocessed = backfill.get("unprocessed", 0)
+        new_notifications = backfill.get("new_notifications", 0)
+        already_known = backfill.get("already_known", 0)
+
         response_lines.extend([
             "",
-            f"💡 {i('Tipp: Verwenden Sie /list für Überwachungsstatus')}"
+            "🔁 <b>Nachbearbeitung (Backfill):</b>",
+            f"• Unverarbeitete Artikel: {unprocessed}",
+            f"• Neue Benachrichtigungen: {new_notifications}",
+            f"• Bereits bekannte Artikel: {already_known}",
+            "",
         ])
-        
-        response_text = br_join(response_lines)
+
+        if new_notifications > 0:
+            response_lines.append(
+                f"✅ {new_notifications} neue Benachrichtigungen wurden nachträglich versendet."
+            )
+        else:
+            response_lines.append("ℹ️ Alle gefundenen Artikel sind entweder bereits bekannt oder zu alt.")
+
+        response_lines.append("💡 Tipp: Verwenden Sie <code>/list</code> für Überwachungsstatus")
+
+        response_text = "\n".join(response_lines)
         
         await status_msg.edit_text(response_text, parse_mode="HTML")
         logger.info({"event": "send_text", "len": len(response_text), "preview": response_text[:120].replace("\n", "⏎")})
@@ -549,24 +546,25 @@ async def cmd_list(message: Message):
             ]
             
             # Add poll telemetry if available
-            if hasattr(keyword, 'poll_mode') and keyword.poll_mode:
-                poll_info_parts = [f"Modus: {keyword.poll_mode}"]
-                
-                if hasattr(keyword, 'total_pages_estimate') and keyword.total_pages_estimate:
-                    poll_info_parts.append(f"Seiten: ~{keyword.total_pages_estimate}")
-                
-                if hasattr(keyword, 'poll_cursor_page') and keyword.poll_mode == "rotate":
-                    cursor_page = getattr(keyword, 'poll_cursor_page', 1)
-                    window_size = getattr(keyword, 'poll_window', 5)
-                    poll_info_parts.append(f"Fenster: {cursor_page}-{cursor_page + window_size - 1}")
-                
-                if hasattr(keyword, 'last_deep_scan_at') and keyword.last_deep_scan_at:
-                    poll_info_parts.append(f"Tiefe Suche: {fmt_ts_de(keyword.last_deep_scan_at)}")
-                
-                if poll_info_parts:
-                    keyword_lines.append(f"Poll: {' — '.join(poll_info_parts)}")
-            else:
-                keyword_lines.append("Poll: Standard-Modus")
+            poll_mode_value = getattr(keyword, 'poll_mode', 'full') or 'full'
+            mode_labels = {
+                "full": "full (Alle Seiten)",
+                "rotate": "rotate (rotierendes Fenster, deaktiviert)",
+            }
+            poll_info_parts = [f"Modus: {mode_labels.get(poll_mode_value, poll_mode_value)}"]
+
+            if hasattr(keyword, 'total_pages_estimate') and keyword.total_pages_estimate:
+                poll_info_parts.append(f"Seiten: ~{keyword.total_pages_estimate}")
+
+            if poll_mode_value == "rotate" and hasattr(keyword, 'poll_cursor_page'):
+                cursor_page = getattr(keyword, 'poll_cursor_page', 1)
+                window_size = getattr(keyword, 'poll_window', 5)
+                poll_info_parts.append(f"Fenster: {cursor_page}-{cursor_page + window_size - 1}")
+
+            if hasattr(keyword, 'last_deep_scan_at') and keyword.last_deep_scan_at:
+                poll_info_parts.append(f"Tiefe Suche: {fmt_ts_de(keyword.last_deep_scan_at)}")
+
+            keyword_lines.append(f"Poll: {' — '.join(poll_info_parts)}")
             
             message_lines.append(br_join(keyword_lines))
             
@@ -804,7 +802,7 @@ async def cmd_hilfe(message: Message):
     help_text = br_join([
         f"🤖 {b('Article Hunter Bot - Hilfe')}",
         "",
-        "Dieser Bot überwacht militaria321.com nach neuen Angeboten, die zu Ihren Suchbegriffen passen, und benachrichtigt Sie sofort.",
+        "Dieser Bot überwacht militaria321.com und egun.de nach neuen Angeboten, die zu Ihren Suchbegriffen passen, und benachrichtigt Sie sofort.",
         "",
         f"📋 {b('Verfügbare Befehle:')}",
         "",
@@ -833,8 +831,8 @@ async def cmd_hilfe(message: Message):
         "",
         "Der Bot löst das Problem, dass militaria321.com nach Auktionsende sortiert und neue Artikel auf hinteren Seiten erscheinen können:",
         "",
-        f"• {b('Rotierender Modus (Standard):')} Scannt Hauptseiten + rotierendes Fenster",
-        f"• {b('Vollständiger Modus:')} Scannt alle Seiten bei jedem Durchlauf", 
+        f"• {b('Vollständiger Modus (Standard):')} Scannt alle Seiten bei jedem Durchlauf",
+        f"• {b('Legacy-Rotationsmodus:')} Deaktiviert – bestehende Überwachungen werden automatisch migriert",
         f"• {b('Intelligente Abdeckung:')} Garantiert, dass keine neuen Artikel übersehen werden",
         f"• {b('Server-freundlich:')} Kontrollierte Anfragen mit Pausen zwischen Seiten",
         "",
@@ -847,7 +845,7 @@ async def cmd_hilfe(message: Message):
         "",
         f"🌍 {b('Zeitzone:')} Alle Zeiten in Deutschland (Europe/Berlin)",
         f"🔄 {b('Frequenz:')} Überwachung alle 60 Sekunden",
-        f"📱 {b('Plattform:')} Derzeit nur militaria321.com",
+        f"📱 {b('Plattformen:')} {', '.join(search_service.providers.keys())}",
         "",
         f"💡 {b('Tipps:')}",
         f"• Verwenden Sie {code('/list')}, um den Status Ihrer Überwachungen zu prüfen",
@@ -880,6 +878,7 @@ async def main():
     # Initialize services
     search_service = SearchService(db_manager)
     notification_service = NotificationService(db_manager, bot)
+    search_service.attach_notification_service(notification_service)
     
     # Initialize scheduler
     polling_scheduler = PollingScheduler(db_manager, search_service, notification_service)
