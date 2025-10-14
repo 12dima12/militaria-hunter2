@@ -2,9 +2,9 @@
 Text formatting utilities for Telegram HTML messages
 """
 from html import escape as htmlesc
-from datetime import datetime
 from typing import Optional
-from zoneinfo import ZoneInfo
+
+from utils.time_utils import berlin_fmt
 
 
 def br_join(lines):
@@ -33,10 +33,9 @@ def code(txt):
 
 
 def fmt_ts_de(dt_utc: Optional[datetime]) -> str:
-    """Format UTC datetime as German Berlin time, or / if None"""
-    if not dt_utc:
-        return "/"
-    return dt_utc.astimezone(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M Uhr")
+    """Format UTC datetime as German Berlin time, or / if None."""
+
+    return berlin_fmt(dt_utc)
 
 
 def fmt_price_de(price_value: Optional[float], currency: Optional[str] = None) -> str:

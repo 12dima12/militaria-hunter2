@@ -23,6 +23,7 @@ from scheduler import PollingScheduler, stop_keyword_job
 from zoneinfo import ZoneInfo
 from providers.militaria321 import Militaria321Provider
 from utils.text import br_join, b, i, a, code, fmt_ts_de, fmt_price_de, htmlesc
+from utils.time_utils import now_utc as utc_now
 
 # Load environment
 load_dotenv()
@@ -112,7 +113,7 @@ async def cmd_search(message: Message):
             
             # Reset keyword for reactivation
             existing.is_active = True
-            existing.since_ts = datetime.utcnow()
+            existing.since_ts = utc_now()
             existing.seen_listing_keys = []
             existing.baseline_status = "pending"
             existing.baseline_errors = {}
@@ -120,7 +121,7 @@ async def cmd_search(message: Message):
             existing.last_success_ts = None
             existing.last_error_ts = None
             existing.consecutive_errors = 0
-            existing.updated_at = datetime.utcnow()
+            existing.updated_at = utc_now()
             
             # Update in database
             update_doc = existing.dict()
@@ -154,7 +155,7 @@ async def cmd_search(message: Message):
             user_id=user.id,
             original_keyword=keyword_text,
             normalized_keyword=normalized,
-            since_ts=datetime.utcnow(),  # Set baseline timestamp
+            since_ts=utc_now(),  # Set baseline timestamp
             baseline_status="pending",
             platforms=provider_platforms
         )
@@ -518,7 +519,7 @@ async def cmd_list(message: Message):
         message_lines = [b("Ihre aktiven Überwachungen:"), ""]
         keyboard_buttons = []
         
-        now_utc = datetime.utcnow()
+        now_utc = utc_now()
         
         for i, keyword in enumerate(keywords):
             # Compute health status
