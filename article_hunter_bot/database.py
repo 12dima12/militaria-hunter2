@@ -3,7 +3,9 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from typing import Optional, List
 import logging
 from datetime import datetime
+
 from models import User, Keyword, StoredListing, Notification
+from utils.datetime_utils import now_utc, to_utc_aware
 
 logger = logging.getLogger(__name__)
 
@@ -25,21 +27,63 @@ class DatabaseManager:
         db_name = os.environ.get('DB_NAME', 'article_hunter')
         
         try:
-            self.client = AsyncIOMotorClient(mongo_url)
+            self.client = AsyncIOMotorClient(mongo_url, tz_aware=True)
             self.db = self.client[db_name]
             
             # Create indexes
             await self._create_indexes()
-            
+
             # Test connection
             await self.client.admin.command('ping')
             logger.info(f"Connected to MongoDB: {db_name}")
-            
+
+            await self._run_timezone_migration()
+
             self._initialized = True
             
         except Exception as e:
             logger.error(f"Failed to connect to MongoDB: {e}")
             raise
+
+    async def _run_timezone_migration(self) -> None:
+        """Ensure legacy timestamps are upgraded to UTC-aware values."""
+
+        keywords_collection = self.db.keywords
+        listings_collection = self.db.listings
+
+        keyword_updates = 0
+        cursor = keywords_collection.find({}, {"id": 1, "since_ts": 1})
+        async for doc in cursor:
+            since_ts = doc.get("since_ts")
+            if isinstance(since_ts, datetime) and since_ts.tzinfo is None:
+                new_value = to_utc_aware(since_ts)
+                await keywords_collection.update_one(
+                    {"id": doc.get("id")}, {"$set": {"since_ts": new_value}}
+                )
+                keyword_updates += 1
+
+        listing_updates = 0
+        cursor = listings_collection.find(
+            {"posted_ts": {"$ne": None}}, {"_id": 1, "posted_ts": 1}
+        )
+        async for doc in cursor:
+            posted_ts = doc.get("posted_ts")
+            if isinstance(posted_ts, datetime) and posted_ts.tzinfo is None:
+                new_value = to_utc_aware(posted_ts)
+                await listings_collection.update_one(
+                    {"_id": doc.get("_id")}, {"$set": {"posted_ts": new_value}}
+                )
+                listing_updates += 1
+
+        logger.info(
+            {
+                "event": "tz_migration",
+                "updated": {
+                    "keywords": keyword_updates,
+                    "listings": listing_updates,
+                },
+            }
+        )
     
     async def _create_indexes(self):
         """Create necessary database indexes"""
@@ -66,7 +110,13 @@ class DatabaseManager:
         """Get user by telegram ID"""
         doc = await self.db.users.find_one({"telegram_id": telegram_id})
         return User(**doc) if doc else None
-    
+
+    async def get_user_by_id(self, user_id: str) -> Optional[User]:
+        """Get user by internal ID"""
+
+        doc = await self.db.users.find_one({"id": user_id})
+        return User(**doc) if doc else None
+
     async def create_user(self, user: User) -> User:
         """Create new user"""
         doc = user.dict()
@@ -112,7 +162,7 @@ class DatabaseManager:
         
         await self.db.keywords.update_one(
             {"id": keyword_id},
-            {"$set": {"seen_listing_keys": seen_keys, "updated_at": datetime.utcnow()}}
+            {"$set": {"seen_listing_keys": seen_keys, "updated_at": now_utc()}}
         )
     
     async def delete_keyword(self, keyword_id: str):
@@ -125,7 +175,7 @@ class DatabaseManager:
             {"id": keyword_id},
             {"$set": {
                 "is_active": False,
-                "updated_at": datetime.utcnow()
+                "updated_at": now_utc()
             }}
         )
     
