@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Optional, List
 from urllib.parse import urljoin, parse_qs, urlparse
@@ -13,6 +13,7 @@ from dateutil import tz
 
 from models import Listing, SearchResult
 from providers.base import BaseProvider
+from utils.datetime_utils import to_utc_aware
 
 logger = logging.getLogger(__name__)
 
@@ -528,7 +529,7 @@ class Militaria321Provider(BaseProvider):
                 
                 # Convert from Berlin timezone to UTC
                 dt_berlin = dt_berlin.replace(tzinfo=self.berlin_tz)
-                dt_utc = dt_berlin.astimezone(timezone.utc).replace(tzinfo=None)
+                dt_utc = to_utc_aware(dt_berlin)
                 
                 logger.debug(f"Parsed {label}: {date_str} {time_str} -> {dt_utc} UTC")
                 return dt_utc
@@ -543,7 +544,7 @@ class Militaria321Provider(BaseProvider):
                 dt_str = f"{date_str} {time_str}"
                 dt_berlin = datetime.strptime(dt_str, "%d.%m.%Y %H:%M")
                 dt_berlin = dt_berlin.replace(tzinfo=self.berlin_tz)
-                dt_utc = dt_berlin.astimezone(timezone.utc).replace(tzinfo=None)
+                dt_utc = to_utc_aware(dt_berlin)
                 
                 return dt_utc
             

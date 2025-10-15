@@ -4,16 +4,16 @@ import os
 import random
 import re
 import unicodedata
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import List, Optional
 from urllib.parse import quote, urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup, Tag
-from zoneinfo import ZoneInfo
 
 from models import Listing, SearchResult
 from providers.base import BaseProvider
+from utils.datetime_utils import BERLIN, now_utc, to_utc_aware
 
 logger = logging.getLogger(__name__)
 
@@ -49,19 +49,19 @@ class KleinanzeigenProvider(BaseProvider):
         self.cooldown_on_captcha_min = float(os.environ.get("KA_COOLDOWN_ON_CAPTCHA_MIN", "45"))
 
         self.headers = {
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
             "Accept-Encoding": "gzip, deflate, br",
-            "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept-Language": "de-DE,de;q=0.9",
             "Connection": "keep-alive",
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
             ),
             "Cache-Control": "no-cache",
             "Pragma": "no-cache",
         }
 
-        self.berlin_tz = ZoneInfo("Europe/Berlin")
+        self.berlin_tz = BERLIN
 
         # Rate limiting & state
         self._rate_lock = asyncio.Lock()
@@ -72,6 +72,7 @@ class KleinanzeigenProvider(BaseProvider):
         self._captcha_backoff_exp: int = 0
         self._pending_events: List[dict] = []
         self._last_error: Optional[str] = None
+        self._session_warmed: bool = False
 
     @property
     def platform_name(self) -> str:
@@ -84,14 +85,138 @@ class KleinanzeigenProvider(BaseProvider):
         """Construct Kleinanzeigen search URL for keyword/page"""
         slug = self._slugify(keyword)
         if page <= 1:
-            path = f"/s-{slug}/"
+            path = f"/s-{slug}/k0"
         else:
-            path = f"/s-seite:{page}/{slug}/"
+            path = f"/s-seite:{page}/{slug}/k0"
         return urljoin(self.BASE_URL, path)
+
+    def _candidate_paths(self, keyword: str, page: int) -> List[str]:
+        slug = self._slugify(keyword) or "suche"
+        candidates: List[str] = []
+
+        if page <= 1:
+            raw = [
+                f"/s-{slug}/k0",
+                f"/s-suchanfrage/{slug}/k0",
+                f"/s/{slug}/k0",
+            ]
+        else:
+            raw = [
+                f"/s-seite:{page}/{slug}/k0",
+                f"/s-seite:{page}/suchanfrage-{slug}/k0",
+                f"/s/{slug}/k0/seite:{page}",
+            ]
+
+        for path in raw:
+            if path not in candidates:
+                candidates.append(path)
+
+        return candidates
 
     # ------------------------------------------------------------------
     # BaseProvider implementation
     # ------------------------------------------------------------------
+    async def _warmup_session(self, client: httpx.AsyncClient, mode: str) -> None:
+        if self._session_warmed:
+            return
+
+        try:
+            delay = self.baseline_delay if mode == "baseline" else self.base_delay
+            await self._respect_rate_limit(delay)
+            response = await client.get(self.BASE_URL + "/")
+            client.cookies.update(response.cookies)
+            response.raise_for_status()
+            self._session_warmed = True
+            logger.info(
+                {
+                    "event": "ka_warmup",
+                    "platform": self.platform_name,
+                    "status": response.status_code,
+                    "final_url": str(response.url),
+                }
+            )
+        except Exception as exc:
+            self._pending_events.append(
+                {
+                    "event": "ka_warmup_error",
+                    "platform": self.platform_name,
+                    "error": str(exc)[:200],
+                }
+            )
+            logger.warning(
+                {
+                    "event": "ka_warmup_error",
+                    "platform": self.platform_name,
+                    "error": str(exc),
+                }
+            )
+
+    async def _fetch_search_page(
+        self,
+        client: httpx.AsyncClient,
+        keyword: str,
+        page: int,
+        mode: str,
+    ) -> tuple[Optional[httpx.Response], Optional[int], Optional[str], Optional[str]]:
+        candidates = self._candidate_paths(keyword, page)
+        last_status: Optional[int] = None
+        last_final_url: Optional[str] = None
+        last_reason: Optional[str] = None
+
+        for path in candidates:
+            url = urljoin(self.BASE_URL, path)
+            response, status, final_url, reason = await self._request(
+                client,
+                url,
+                mode,
+                keyword=keyword,
+                page=page,
+            )
+
+            last_status = status
+            last_final_url = final_url or url
+            last_reason = reason
+
+            logger.info(
+                {
+                    "event": "ka_search",
+                    "platform": self.platform_name,
+                    "q": keyword,
+                    "url": url,
+                    "status": status,
+                    "final_url": last_final_url,
+                    "page": page,
+                }
+            )
+
+            if response is not None:
+                return response, status, last_final_url, None
+
+            if reason != "not_found":
+                break
+
+        return None, last_status, last_final_url, last_reason
+
+    @staticmethod
+    def _is_consent_page(final_url: str, text_lower: str) -> bool:
+        if not final_url:
+            return False
+        final_lower = final_url.lower()
+        if "consent" in final_lower or "datenschutz" in final_lower:
+            return True
+        return "zustimmen" in text_lower or "cookie" in text_lower
+
+    @staticmethod
+    def _apply_consent_cookies(client: httpx.AsyncClient, response: httpx.Response) -> None:
+        client.cookies.update(response.cookies)
+        consent_cookies = {
+            "cookieBanner": "1",
+            "cookie_consent": "1",
+            "topbox": "accepted",
+        }
+        for name, value in consent_cookies.items():
+            client.cookies.set(name, value, domain="www.kleinanzeigen.de")
+
     async def search(
         self,
         keyword: str,
@@ -124,42 +249,39 @@ class KleinanzeigenProvider(BaseProvider):
         seen_ids: set[str] = set()
         pages_scanned = 0
         has_more = False
+        error_message: Optional[str] = None
+        last_page_index: Optional[int] = None
+        last_final_url: Optional[str] = None
 
         async with httpx.AsyncClient(headers=self.headers, timeout=30.0, follow_redirects=True) as client:
+            self._session_warmed = False
+            await self._warmup_session(client, mode)
+
             page = 1
             while page <= max_pages:
-                url = self.build_search_url(keyword, page)
-                try:
-                    response = await self._request(client, url, mode)
-                except httpx.HTTPStatusError as exc:
-                    self._last_error = f"HTTP {exc.response.status_code}"
-                    logger.error(
-                        {
-                            "event": "ka_page_error",
-                            "platform": self.platform_name,
-                            "url": url,
-                            "status": exc.response.status_code,
-                        }
-                    )
-                    break
-                except httpx.HTTPError as exc:
-                    self._last_error = str(exc)
-                    logger.error(
-                        {
-                            "event": "ka_network_error",
-                            "platform": self.platform_name,
-                            "url": url,
-                            "error": str(exc),
-                        }
-                    )
-                    break
+                response, status, final_url, reason = await self._fetch_search_page(
+                    client, keyword, page, mode
+                )
+                last_final_url = final_url
 
                 if response is None:
-                    # Blocked or CAPTCHA
+                    if reason == "not_found":
+                        error_message = f"Suchpfad nicht gültig (HTTP {status}) – {final_url}"
+                    elif reason == "captcha":
+                        error_message = "Bot-Schutz aktiv – Kleinanzeigen hat die Anfrage blockiert."
+                    elif reason == "consent":
+                        error_message = "Consent-Seite blockiert die Suche."
+                    elif reason == "block":
+                        error_message = self._last_error or f"Anfrage blockiert (HTTP {status})."
+                    elif reason == "network":
+                        error_message = self._last_error or "Netzwerkfehler bei Kleinanzeigen."
+                    else:
+                        error_message = self._last_error or "Unbekannter Suchfehler bei Kleinanzeigen."
+                    self._last_error = error_message
                     break
 
                 html = response.text
-                page_items = self._parse_search_page(html)
+                page_items, items_total, promoted_skipped = self._parse_search_page(html)
                 organic_count = len(page_items)
 
                 filtered: List[Listing] = []
@@ -172,19 +294,24 @@ class KleinanzeigenProvider(BaseProvider):
                 if filtered:
                     pages_scanned += 1
                     items.extend(filtered)
+                    last_page_index = page
+                    self._last_error = None
 
                 logger.info(
                     {
                         "event": "ka_page",
                         "platform": self.platform_name,
+                        "q": keyword,
                         "page": page,
-                        "items_on_page": organic_count,
-                        "unique_items": len(filtered),
-                        "url": str(response.url),
+                        "items_total": items_total,
+                        "items_promoted_skipped": promoted_skipped,
+                        "items_kept": len(filtered),
+                        "url": final_url,
                     }
                 )
 
                 if not crawl_all and not sample_mode:
+                    has_more = organic_count > 0 and page < max_pages
                     break
 
                 has_more = organic_count > 0 and page < max_pages
@@ -199,11 +326,17 @@ class KleinanzeigenProvider(BaseProvider):
         if events:
             metadata["events"] = events
 
+        if last_final_url:
+            metadata["last_search_url"] = last_final_url
+
+        if error_message:
+            metadata["last_error"] = error_message
+
         return SearchResult(
             items=items,
             has_more=has_more,
             pages_scanned=pages_scanned,
-            last_page_index=pages_scanned if pages_scanned else None,
+            last_page_index=last_page_index,
             metadata=metadata,
         )
 
@@ -226,7 +359,13 @@ class KleinanzeigenProvider(BaseProvider):
                 if not url.startswith(self.BASE_URL):
                     return
                 async with semaphore:
-                    response = await self._request(client, url, "detail")
+                    response, _, _, reason = await self._request(
+                        client,
+                        url,
+                        "detail",
+                        keyword=None,
+                        page=None,
+                    )
                 if response is None:
                     return
                 posted = self._extract_posted_ts_from_detail(response.text)
@@ -247,7 +386,7 @@ class KleinanzeigenProvider(BaseProvider):
             "cooldown_until": self._cooldown_until.isoformat() if self._cooldown_until else None,
             "last_error": self._last_error,
             "cooldown_active": self._cooldown_until is not None
-            and datetime.now(timezone.utc) < self._cooldown_until,
+            and now_utc() < self._cooldown_until,
         }
         return data
 
@@ -259,20 +398,28 @@ class KleinanzeigenProvider(BaseProvider):
     def _can_attempt_request(self) -> bool:
         if self._cooldown_until is None:
             return True
-        return datetime.now(timezone.utc) >= self._cooldown_until
+        return now_utc() >= self._cooldown_until
 
     async def _respect_rate_limit(self, delay: float) -> None:
         delay = max(0.5, delay)
         async with self._rate_lock:
-            now = datetime.now(timezone.utc)
+            now = now_utc()
             if self._last_request_at is not None:
                 elapsed = (now - self._last_request_at).total_seconds()
                 wait_for = delay + random.uniform(0.2, 0.8) - elapsed
                 if wait_for > 0:
                     await asyncio.sleep(wait_for)
-            self._last_request_at = datetime.now(timezone.utc)
+            self._last_request_at = now_utc()
 
-    async def _request(self, client: httpx.AsyncClient, url: str, mode: str) -> Optional[httpx.Response]:
+    async def _request(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        mode: str,
+        *,
+        keyword: Optional[str] = None,
+        page: Optional[int] = None,
+    ) -> tuple[Optional[httpx.Response], Optional[int], Optional[str], Optional[str]]:
         if not url.startswith(self.BASE_URL):
             raise ValueError("Outbound URL not allowed")
 
@@ -280,6 +427,8 @@ class KleinanzeigenProvider(BaseProvider):
         await self._respect_rate_limit(delay)
 
         last_exc: Optional[Exception] = None
+        consent_retry = False
+
         for attempt in range(self.max_retries):
             try:
                 response = await client.get(url)
@@ -288,30 +437,90 @@ class KleinanzeigenProvider(BaseProvider):
                 await asyncio.sleep(min(5, 1 + attempt))
                 continue
 
-            if response.status_code in (403, 429):
-                self._handle_block(response.status_code)
-                return None
+            final_url = str(response.url)
+            status = response.status_code
+            text_lower = response.text.lower() if response.text else ""
 
-            text_lower = response.text.lower()
-            if self._detect_captcha(text_lower):
-                self._handle_captcha_detected()
-                return None
+            if status in (403, 429, 503):
+                self._handle_block(
+                    status,
+                    keyword=keyword,
+                    page=page,
+                    url=url,
+                    final_url=final_url,
+                )
+                return None, status, final_url, "block"
+
+            if self._is_consent_page(final_url, text_lower):
+                if not consent_retry:
+                    self._apply_consent_cookies(client, response)
+                    consent_retry = True
+                    continue
+                self._last_error = "Consent-Bestätigung erforderlich"
+                logger.warning(
+                    {
+                        "event": "ka_consent_block",
+                        "platform": self.platform_name,
+                        "q": keyword,
+                        "page": page,
+                        "url": final_url,
+                    }
+                )
+                return None, status, final_url, "consent"
+
+            if self._detect_captcha(text_lower) or "/captcha" in final_url.lower():
+                self._handle_captcha_detected(
+                    keyword=keyword,
+                    page=page,
+                    url=url,
+                    final_url=final_url,
+                    status=status,
+                )
+                return None, status, final_url, "captcha"
 
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as exc:
-                raise exc
+                if exc.response.status_code == 404:
+                    return None, 404, final_url, "not_found"
+                last_exc = exc
+                break
 
             self._handle_captcha_recovered()
             self._last_error = None
-            return response
+            return response, status, final_url, None
 
         if last_exc:
-            raise last_exc
-        return None
+            status = None
+            final_url = url
+            if isinstance(last_exc, httpx.HTTPStatusError):
+                status = last_exc.response.status_code
+                final_url = str(last_exc.response.url)
+            self._last_error = str(last_exc)
+            logger.error(
+                {
+                    "event": "ka_network_error",
+                    "platform": self.platform_name,
+                    "q": keyword,
+                    "page": page,
+                    "url": url,
+                    "error": str(last_exc),
+                }
+            )
+            return None, status, final_url, "network"
 
-    def _handle_block(self, status_code: int) -> None:
-        now = datetime.now(timezone.utc)
+        return None, None, url, "network"
+
+    def _handle_block(
+        self,
+        status_code: int,
+        *,
+        keyword: Optional[str] = None,
+        page: Optional[int] = None,
+        url: Optional[str] = None,
+        final_url: Optional[str] = None,
+    ) -> None:
+        now = now_utc()
         if status_code == 429:
             minutes = max(self.backoff_429_min, 1.0)
             cooldown = timedelta(minutes=minutes * (2 ** min(self._captcha_backoff_exp, 3)))
@@ -330,11 +539,22 @@ class KleinanzeigenProvider(BaseProvider):
                 "platform": self.platform_name,
                 "status": status_code,
                 "cooldown_until": self._cooldown_until.isoformat() if self._cooldown_until else None,
+                "q": keyword,
+                "page": page,
+                "url": final_url or url,
             }
         )
 
-    def _handle_captcha_detected(self) -> None:
-        now = datetime.now(timezone.utc)
+    def _handle_captcha_detected(
+        self,
+        *,
+        keyword: Optional[str],
+        page: Optional[int],
+        url: Optional[str],
+        final_url: Optional[str],
+        status: Optional[int],
+    ) -> None:
+        now = now_utc()
         state_changed = self._captcha_state != "entered"
 
         if state_changed:
@@ -361,12 +581,25 @@ class KleinanzeigenProvider(BaseProvider):
             }
             self._pending_events.append(event)
 
+        recaptcha_event = {
+            "event": "ka_recaptcha",
+            "platform": self.platform_name,
+            "q": keyword,
+            "page": page,
+            "url": final_url or url,
+            "status": status,
+            "detected_at": now.isoformat(),
+        }
+        self._pending_events.append(recaptcha_event)
+
         logger.warning(
             {
-                "event": "ka_captcha",
+                "event": "ka_recaptcha",
                 "platform": self.platform_name,
-                "state": "entered",
-                "cooldown_until": self._cooldown_until.isoformat() if self._cooldown_until else None,
+                "q": keyword,
+                "page": page,
+                "url": final_url or url,
+                "status": status,
             }
         )
 
@@ -374,7 +607,7 @@ class KleinanzeigenProvider(BaseProvider):
         if self._captcha_state != "entered":
             return
 
-        now = datetime.now(timezone.utc)
+        now = now_utc()
         event = {
             "event": "captcha_detected",
             "platform": self.platform_name,
@@ -402,14 +635,16 @@ class KleinanzeigenProvider(BaseProvider):
             return False
         return any(marker in text_lower for marker in self.CAPTCHA_MARKERS)
 
-    def _parse_search_page(self, html: str) -> List[Listing]:
+    def _parse_search_page(self, html: str) -> tuple[List[Listing], int, int]:
         soup = BeautifulSoup(html, "html.parser")
         marker = self._find_organic_marker(soup)
         if not marker:
-            return []
+            return [], 0, 0
 
         listings: List[Listing] = []
         seen: set[str] = set()
+        total_items = 0
+        promoted_skipped = 0
 
         for article in marker.find_all_next("article"):
             if not isinstance(article, Tag):
@@ -418,7 +653,10 @@ class KleinanzeigenProvider(BaseProvider):
             if article.get("data-adid") is None and article.get("data-id") is None:
                 continue
 
+            total_items += 1
+
             if self._is_promoted(article):
+                promoted_skipped += 1
                 continue
 
             link = article.find("a", href=True)
@@ -474,7 +712,7 @@ class KleinanzeigenProvider(BaseProvider):
             )
             listings.append(listing)
 
-        return listings
+        return listings, total_items, promoted_skipped
 
     def _find_organic_marker(self, soup: BeautifulSoup) -> Optional[Tag]:
         marker = soup.find(lambda tag: tag.name in {"h1", "h2"} and tag.get_text(strip=True).startswith("Alle Artikel"))
@@ -507,7 +745,7 @@ class KleinanzeigenProvider(BaseProvider):
             return None
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=self.berlin_tz)
-        return dt.astimezone(timezone.utc)
+        return to_utc_aware(dt)
 
     def _extract_posted_ts_from_detail(self, html: str) -> Optional[datetime]:
         soup = BeautifulSoup(html, "html.parser")
@@ -536,7 +774,7 @@ class KleinanzeigenProvider(BaseProvider):
         cleaned = re.sub(r"\s+", " ", cleaned)
 
         lower = cleaned.lower()
-        now_berlin = datetime.now(self.berlin_tz)
+        now_berlin = now_utc().astimezone(self.berlin_tz)
 
         if lower.startswith("heute"):
             time_part = cleaned.split(",", 1)[-1].strip() if "," in cleaned else ""
@@ -548,7 +786,7 @@ class KleinanzeigenProvider(BaseProvider):
             else:
                 hour = minute = 0
             dt = now_berlin.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            return dt.astimezone(timezone.utc)
+            return to_utc_aware(dt)
 
         if lower.startswith("gestern"):
             time_part = cleaned.split(",", 1)[-1].strip() if "," in cleaned else ""
@@ -560,7 +798,7 @@ class KleinanzeigenProvider(BaseProvider):
             else:
                 hour = minute = 0
             dt = (now_berlin - timedelta(days=1)).replace(hour=hour, minute=minute, second=0, microsecond=0)
-            return dt.astimezone(timezone.utc)
+            return to_utc_aware(dt)
 
         # Try DD.MM.YYYY HH:MM format
         match = re.search(r"(\d{1,2}\.\d{1,2}\.\d{4})(?:,?\s*(\d{1,2}:\d{2}))?", cleaned)
@@ -570,7 +808,7 @@ class KleinanzeigenProvider(BaseProvider):
             try:
                 dt = datetime.strptime(f"{date_part} {time_part}", "%d.%m.%Y %H:%M")
                 dt = dt.replace(tzinfo=self.berlin_tz)
-                return dt.astimezone(timezone.utc)
+                return to_utc_aware(dt)
             except ValueError:
                 pass
 

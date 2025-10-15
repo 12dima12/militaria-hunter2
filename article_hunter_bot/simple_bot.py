@@ -5,8 +5,6 @@ Simple bot runner for Article Hunter - avoid router conflicts
 import asyncio
 import logging
 import os
-from datetime import datetime, timezone
-from typing import Optional
 from dotenv import load_dotenv
 
 from aiogram import Bot, Dispatcher, Router, types, F
@@ -20,9 +18,9 @@ from models import User, Keyword
 from services.search_service import SearchService, POLL_INTERVAL_SECONDS
 from services.notification_service import NotificationService
 from scheduler import PollingScheduler, stop_keyword_job
-from zoneinfo import ZoneInfo
 from providers.militaria321 import Militaria321Provider
 from utils.text import br_join, b, i, a, code, fmt_ts_de, fmt_price_de, htmlesc
+from utils.datetime_utils import now_utc as utc_now
 
 # Load environment
 load_dotenv()
@@ -36,12 +34,6 @@ db_manager = None
 search_service = None
 notification_service = None
 polling_scheduler = None  # Will be set by main application
-
-def berlin(dt_utc: datetime | None) -> str:
-    """Format datetime in Berlin timezone"""
-    if not dt_utc:
-        return "/"
-    return dt_utc.astimezone(ZoneInfo("Europe/Berlin")).strftime("%d.%m.%Y %H:%M") + " Uhr"
 
 async def ensure_user(telegram_user) -> User:
     """Ensure user exists in database"""
@@ -112,7 +104,7 @@ async def cmd_search(message: Message):
             
             # Reset keyword for reactivation
             existing.is_active = True
-            existing.since_ts = datetime.utcnow()
+            existing.since_ts = utc_now()
             existing.seen_listing_keys = []
             existing.baseline_status = "pending"
             existing.baseline_errors = {}
@@ -120,7 +112,7 @@ async def cmd_search(message: Message):
             existing.last_success_ts = None
             existing.last_error_ts = None
             existing.consecutive_errors = 0
-            existing.updated_at = datetime.utcnow()
+            existing.updated_at = utc_now()
             
             # Update in database
             update_doc = existing.dict()
@@ -154,7 +146,7 @@ async def cmd_search(message: Message):
             user_id=user.id,
             original_keyword=keyword_text,
             normalized_keyword=normalized,
-            since_ts=datetime.utcnow(),  # Set baseline timestamp
+            since_ts=utc_now(),  # Set baseline timestamp
             baseline_status="pending",
             platforms=provider_platforms
         )
@@ -518,7 +510,7 @@ async def cmd_list(message: Message):
         message_lines = [b("Ihre aktiven Überwachungen:"), ""]
         keyboard_buttons = []
         
-        now_utc = datetime.utcnow()
+        now_utc = utc_now()
         
         for i, keyword in enumerate(keywords):
             # Compute health status

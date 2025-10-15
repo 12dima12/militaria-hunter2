@@ -1,9 +1,7 @@
 import logging
 import os
 import re
-from datetime import datetime
 from typing import Optional
-from zoneinfo import ZoneInfo
 
 from aiogram import Bot
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -11,6 +9,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from database import DatabaseManager
 from models import Keyword, Listing, Notification
 from utils.text import br_join, b, i, a, code, fmt_ts_de, fmt_price_de, safe_truncate
+from utils.datetime_utils import now_utc
 
 logger = logging.getLogger(__name__)
 
@@ -25,9 +24,9 @@ class NotificationService:
         self.admin_chat_id: Optional[int] = int(raw_admin_chat) if raw_admin_chat.isdigit() else None
     
     async def send_new_item_notification(
-        self, 
-        user_telegram_id: int, 
-        keyword: Keyword, 
+        self,
+        user_telegram_id: int,
+        keyword: Keyword,
         item: Listing
     ) -> bool:
         """Send notification for new item with German formatting
@@ -85,17 +84,67 @@ class NotificationService:
         except Exception as e:
             logger.error(f"Failed to send notification for {listing_key}: {e}")
             return False
-    
+
+    async def send_recaptcha_warning(self, user_telegram_id: int, keyword: Keyword, event: dict) -> None:
+        """Send user-facing warning when Kleinanzeigen triggers bot protection."""
+
+        lines = [
+            f"⚠️ {b('Kleinanzeigen Bot-Schutz')}",
+            f"Suchbegriff: {keyword.original_keyword}",
+        ]
+
+        page = event.get("page")
+        if page is not None:
+            lines.append(f"Seite: {page}")
+
+        status = event.get("status")
+        if status is not None:
+            lines.append(f"Status: {status}")
+
+        final_url = event.get("url")
+        if final_url:
+            lines.append(f"URL: {final_url}")
+
+        lines.append(
+            "Kleinanzeigen hat einen Bot-Schutz aktiviert. Die Suche kann vorübergehend eingeschränkt sein."
+        )
+
+        payload = br_join(lines)
+
+        try:
+            await self.bot.send_message(
+                chat_id=user_telegram_id,
+                text=payload,
+                parse_mode="HTML",
+                disable_web_page_preview=True,
+            )
+            logger.info(
+                {
+                    "event": "recaptcha_warning_sent",
+                    "keyword": keyword.normalized_keyword,
+                    "user": user_telegram_id,
+                }
+            )
+        except Exception as exc:
+            logger.error(
+                {
+                    "event": "recaptcha_warning_failed",
+                    "keyword": keyword.normalized_keyword,
+                    "user": user_telegram_id,
+                    "error": str(exc)[:200],
+                }
+            )
+
     def _format_notification_message(self, keyword: Keyword, item: Listing) -> str:
         """Format notification message with German texts and Berlin timezone
-        
+
         Template as specified in requirements
         """
         # Format price and timestamps using utilities
         preis = fmt_price_de(item.price_value, item.price_currency)
         if preis == "/" and getattr(item, "price_text", None):
             preis = item.price_text
-        gefunden = fmt_ts_de(datetime.now(ZoneInfo('UTC')))
+        gefunden = fmt_ts_de(now_utc())
         inseriert_am = fmt_ts_de(item.posted_ts)
         platform_label = item.platform
         platform_link = a(platform_label, item.url) if item.url else platform_label

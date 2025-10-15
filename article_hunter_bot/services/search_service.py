@@ -3,13 +3,14 @@ import os
 import re
 import unicodedata
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import List, Optional, Literal
 
 from database import DatabaseManager
 from models import Keyword, Listing, StoredListing
 from providers import get_all_providers
 from utils.text import br_join, b, i, a, code, fmt_ts_de, fmt_price_de
+from utils.datetime_utils import now_utc as get_utc_now, to_utc_aware
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,7 @@ class SearchService:
         seen_this_run = set()  # In-run deduplication
 
         await self._ensure_keyword_platforms(keyword)
+        since_ts_utc = self._normalize_since_ts(keyword)
 
         # Determine polling mode: rotate has been disabled globally; ensure keywords follow suit
         stored_poll_mode = getattr(keyword, 'poll_mode', POLL_MODE)
@@ -127,12 +129,14 @@ class SearchService:
             
             result = await militaria_provider.search(
                 keyword=keyword.original_keyword,
-                since_ts=keyword.since_ts,
+                since_ts=since_ts_utc,
                 crawl_all=True,  # Scan ALL pages to prevent missed items
                 max_pages_override=max_pages_to_scan
             )
 
-            await self._handle_provider_metadata(militaria_provider.platform_name, result.metadata)
+            await self._handle_provider_metadata(
+                militaria_provider.platform_name, result.metadata, keyword
+            )
             
             militaria_pages_scanned = result.pages_scanned or 0
             all_items = result.items
@@ -144,15 +148,16 @@ class SearchService:
             unique_items = []
             for item in all_items:
                 listing_key = self._build_canonical_listing_key(item)
-                
+
                 # Skip duplicates within this run
                 if listing_key in seen_this_run:
                     continue
-                
+
                 seen_this_run.add(listing_key)
-                
-                # Update item with canonical key for consistency  
+
+                # Update item with canonical key for consistency
                 item.platform_id = listing_key.split(':', 1)[1]  # Extract ID part
+                self._normalize_listing_timestamp(item)
                 unique_items.append(item)
                 
                 # Track unseen candidates (not in baseline)
@@ -180,17 +185,19 @@ class SearchService:
                 try:
                     provider_result = await provider.search(
                         keyword=keyword.original_keyword,
-                        since_ts=keyword.since_ts,
+                        since_ts=since_ts_utc,
                         crawl_all=True
                     )
-                    await self._handle_provider_metadata(platform_name, provider_result.metadata)
+                    await self._handle_provider_metadata(
+                        platform_name, provider_result.metadata, keyword
+                    )
                 except Exception as exc:
                     logger.error(f"Error searching {platform_name}: {exc}")
                     continue
 
                 logger.info(
                     {
-                        "event": "provider_scan",
+                        "event": "provider_summary",
                         "platform": platform_name,
                         "q": keyword.normalized_keyword,
                         "pages_scanned": provider_result.pages_scanned,
@@ -331,7 +338,7 @@ class SearchService:
             logger.error(f"Error in deep polling for {militaria_provider.platform_name}: {e}")
             
             # Update telemetry on error
-            now = datetime.utcnow()
+            now = get_utc_now()
             keyword.last_checked = now
             keyword.last_error_ts = now
             keyword.consecutive_errors += 1
@@ -342,7 +349,7 @@ class SearchService:
             return all_new_items
         
         # Update telemetry on success
-        now = datetime.utcnow()
+        now = get_utc_now()
         keyword.last_checked = now
         keyword.last_success_ts = now
         keyword.consecutive_errors = 0
@@ -393,12 +400,60 @@ class SearchService:
         if not items:
             return
 
-        fallback_ts = datetime.now(timezone.utc) - timedelta(days=1)
+        fallback_ts = get_utc_now() - timedelta(days=1)
         for item in items:
             if item.platform == "egun.de" and item.posted_ts is None:
                 item.posted_ts = fallback_ts
+            self._normalize_listing_timestamp(item)
 
-    async def _handle_provider_metadata(self, platform_name: str, metadata: Optional[dict]) -> None:
+    def _normalize_since_ts(self, keyword: Keyword) -> datetime:
+        """Ensure keyword.since_ts is an aware UTC datetime."""
+
+        since_ts = to_utc_aware(keyword.since_ts)
+        if since_ts is None:
+            since_ts = get_utc_now()
+        keyword.since_ts = since_ts
+        return since_ts
+
+    @staticmethod
+    def _normalize_listing_timestamp(item: Listing) -> Optional[datetime]:
+        """Normalize listing.posted_ts to UTC-aware datetime."""
+
+        posted_ts = to_utc_aware(item.posted_ts)
+        item.posted_ts = posted_ts
+        return posted_ts
+
+    def _log_tz_compare(
+        self,
+        keyword: Keyword,
+        original_since_ts: Optional[datetime],
+        original_posted_ts: Optional[datetime],
+        since_ts_utc: datetime,
+        posted_ts_utc: Optional[datetime],
+    ) -> None:
+        """Emit structured timezone comparison telemetry."""
+
+        since_kind = "aware" if original_since_ts and original_since_ts.tzinfo else "naive"
+        posted_kind = "aware" if original_posted_ts and original_posted_ts.tzinfo else "naive"
+
+        logger.info(
+            {
+                "event": "tz_compare",
+                "keyword": keyword.normalized_keyword,
+                "since_ts_kind": since_kind,
+                "posted_ts_kind": posted_kind,
+                "posted_ts_present": posted_ts_utc is not None,
+                "since_ts_utc": since_ts_utc.isoformat(),
+                "posted_ts_utc": posted_ts_utc.isoformat() if posted_ts_utc else None,
+            }
+        )
+
+    async def _handle_provider_metadata(
+        self,
+        platform_name: str,
+        metadata: Optional[dict],
+        keyword: Optional[Keyword] = None,
+    ) -> None:
         metadata = metadata or {}
         self.provider_status[platform_name] = metadata
         events = metadata.get("events") or []
@@ -409,18 +464,34 @@ class SearchService:
             return
 
         for event in events:
-            if event.get("event") != "captcha_detected":
-                continue
-            try:
-                await self.notification_service.send_admin_event(event)
-            except Exception as exc:
-                logger.error(
-                    {
-                        "event": "admin_notify_failed",
-                        "platform": platform_name,
-                        "error": str(exc),
-                    }
-                )
+            event_name = event.get("event")
+            if event_name == "captcha_detected":
+                try:
+                    await self.notification_service.send_admin_event(event)
+                except Exception as exc:
+                    logger.error(
+                        {
+                            "event": "admin_notify_failed",
+                            "platform": platform_name,
+                            "error": str(exc),
+                        }
+                    )
+            elif event_name == "ka_recaptcha" and keyword is not None:
+                try:
+                    user = await self.db.get_user_by_id(keyword.user_id)
+                    if user:
+                        await self.notification_service.send_recaptcha_warning(
+                            user.telegram_id, keyword, event
+                        )
+                except Exception as exc:
+                    logger.error(
+                        {
+                            "event": "recaptcha_notify_failed",
+                            "platform": platform_name,
+                            "keyword": keyword.normalized_keyword,
+                            "error": str(exc),
+                        }
+                    )
 
     async def _ensure_keyword_platforms(self, keyword: Keyword) -> List[str]:
         expected_order = list(self.providers.keys())
@@ -459,7 +530,7 @@ class SearchService:
                 "consecutive_errors": keyword.consecutive_errors,
                 "baseline_status": keyword.baseline_status,
                 "baseline_errors": keyword.baseline_errors,
-                "updated_at": datetime.utcnow()
+                "updated_at": get_utc_now()
             }}
         )
     
@@ -497,15 +568,18 @@ class SearchService:
             return "❌ Fehler", reason
         
         # Rule 4: Never successful but has errors
-        if keyword.last_success_ts is None and keyword.last_error_ts is not None:
+        last_success_utc = to_utc_aware(keyword.last_success_ts)
+        last_error_utc = to_utc_aware(keyword.last_error_ts)
+
+        if last_success_utc is None and last_error_utc is not None:
             reason = "Noch kein erfolgreicher Lauf"
             if keyword.last_error_message:
                 reason += f": {keyword.last_error_message[:100]}"
             return "❌ Fehler", reason
-        
+
         # Rule 5: Stale success
-        if keyword.last_success_ts and (now_utc - keyword.last_success_ts).total_seconds() > STALE_WARN_SEC:
-            age_seconds = (now_utc - keyword.last_success_ts).total_seconds()
+        if last_success_utc and (now_utc - last_success_utc).total_seconds() > STALE_WARN_SEC:
+            age_seconds = (now_utc - last_success_utc).total_seconds()
             if age_seconds < 3600:  # Less than 1 hour
                 age = f"{int(age_seconds // 60)} Min"
             else:  # Hours
@@ -564,7 +638,7 @@ class SearchService:
                     crawl_all=False  # Just first page for probe
                 )
 
-                await self._handle_provider_metadata(platform_name, result.metadata)
+                await self._handle_provider_metadata(platform_name, result.metadata, keyword)
 
                 # Count auction links by checking if items have platform_ids
                 auctions_count = len([item for item in result.items if item.platform_id])
@@ -648,7 +722,7 @@ class SearchService:
             {"id": keyword_id},
             {"$set": {
                 "baseline_status": "running",
-                "baseline_started_ts": datetime.utcnow(),
+                "baseline_started_ts": get_utc_now(),
                 "baseline_errors": {}
             }}
         )
@@ -666,9 +740,10 @@ class SearchService:
                         keyword=keyword.original_keyword,
                         crawl_all=True  # Full crawl for reseed
                     )
-                    
+
                     # Extract listing keys (no detail fetches during reseed)
                     for item in result.items:
+                        self._normalize_listing_timestamp(item)
                         listing_key = self._build_canonical_listing_key(item)
                         all_listing_keys.append(listing_key)
                     
@@ -691,11 +766,11 @@ class SearchService:
                 {"$set": {
                     "seen_listing_keys": unique_listing_keys,
                     "baseline_status": "complete",
-                    "baseline_completed_ts": datetime.utcnow(),
+                    "baseline_completed_ts": get_utc_now(),
                     "baseline_pages_scanned": {p: r.get("pages_scanned", 0) for p, r in provider_results.items() if "error" not in r},
                     "baseline_items_collected": {p: r.get("items_collected", 0) for p, r in provider_results.items() if "error" not in r},
                     "baseline_errors": {p: r["error"] for p, r in provider_results.items() if "error" in r},
-                    "updated_at": datetime.utcnow()
+                    "updated_at": get_utc_now()
                 }}
             )
             
@@ -714,7 +789,7 @@ class SearchService:
                 {"$set": {
                     "baseline_status": "error",
                     "baseline_errors": {"reseed": str(e)[:400]},
-                    "updated_at": datetime.utcnow()
+                    "updated_at": get_utc_now()
                 }}
             )
             raise
@@ -725,7 +800,7 @@ class SearchService:
         Implements baseline_status transitions: pending → running → complete/partial/error
         Returns: (all_items, last_item_meta)
         """
-        now_utc = datetime.utcnow()
+        now_utc = get_utc_now()
         
         # Start baseline: set status to running
         await self.db.db.keywords.update_one(
@@ -755,7 +830,12 @@ class SearchService:
                     crawl_all=True  # Baseline mode - all pages
                 )
 
-                await self._handle_provider_metadata(platform_name, result.metadata)
+                await self._handle_provider_metadata(
+                    platform_name, result.metadata
+                )
+
+                for item in result.items:
+                    self._normalize_listing_timestamp(item)
 
                 provider_results[platform_name] = {
                     "pages_scanned": result.pages_scanned or 0,
@@ -780,7 +860,7 @@ class SearchService:
                 logger.error(f"Error in baseline crawl for {platform_name}: {error_msg}")
         
         # Determine final baseline status
-        now_utc = datetime.utcnow()
+        now_utc = get_utc_now()
         total_providers = len(self.providers)
         successful_providers = len(provider_results)
         
@@ -851,6 +931,9 @@ class SearchService:
         per_platform_unseen: dict[str, List[Listing]] = {}
         per_platform_stats: dict[str, dict[str, int]] = {}
 
+        since_ts_original = keyword.since_ts
+        since_ts_utc = self._normalize_since_ts(keyword)
+
         for platform_name, provider in self.providers.items():
             if platform_name not in enabled_platforms:
                 provider_reports[platform_name] = {
@@ -888,7 +971,9 @@ class SearchService:
                     max_pages_override=MAX_PAGES_PER_CYCLE,
                 )
 
-                await self._handle_provider_metadata(platform_name, result.metadata)
+                await self._handle_provider_metadata(
+                    platform_name, result.metadata, keyword
+                )
                 metadata = result.metadata or {}
 
                 provider_reports[platform_name] = {
@@ -909,6 +994,15 @@ class SearchService:
                     seen_this_run.add(listing_key)
 
                     item.platform_id = listing_key.split(":", 1)[1]
+                    original_posted_ts = item.posted_ts
+                    posted_ts_utc = self._normalize_listing_timestamp(item)
+                    self._log_tz_compare(
+                        keyword,
+                        since_ts_original,
+                        original_posted_ts,
+                        since_ts_utc,
+                        posted_ts_utc,
+                    )
                     all_items.append(item)
 
                     stats = per_platform_stats.setdefault(
@@ -938,6 +1032,17 @@ class SearchService:
                     "event": "manual_check",
                     "keyword": keyword.normalized_keyword,
                     "platform": platform_name,
+                    "pages": provider_reports[platform_name]["pages"],
+                    "items": provider_reports[platform_name]["items"],
+                    "errors": provider_reports[platform_name]["errors"],
+                }
+            )
+
+            logger.info(
+                {
+                    "event": "provider_summary",
+                    "platform": platform_name,
+                    "q": keyword.normalized_keyword,
                     "pages": provider_reports[platform_name]["pages"],
                     "items": provider_reports[platform_name]["items"],
                     "errors": provider_reports[platform_name]["errors"],
@@ -1097,17 +1202,17 @@ class SearchService:
             return False
         
         # Check posted_ts logic
-        if item.posted_ts is not None:
+        since_ts_utc = self._normalize_since_ts(keyword)
+        posted_ts_utc = self._normalize_listing_timestamp(item)
+
+        if posted_ts_utc is not None:
             # Has posted_ts: must be >= since_ts
-            return item.posted_ts >= keyword.since_ts
+            return posted_ts_utc >= since_ts_utc
         else:
             # No posted_ts: allow within 60-minute grace window
             grace_window = timedelta(minutes=60)
-            now_utc = datetime.now(timezone.utc)
-            since_ts = keyword.since_ts
-            if since_ts.tzinfo is None:
-                since_ts = since_ts.replace(tzinfo=timezone.utc)
-            time_since_subscription = now_utc - since_ts
+            now_utc_value = get_utc_now()
+            time_since_subscription = now_utc_value - since_ts_utc
             return time_since_subscription <= grace_window
     
     def _get_filter_reason(self, item: Listing, keyword: Keyword) -> str:
@@ -1117,16 +1222,16 @@ class SearchService:
         if listing_key in keyword.seen_listing_keys:
             return "already_seen"
         
-        if item.posted_ts is not None:
-            if item.posted_ts < keyword.since_ts:
+        since_ts_utc = self._normalize_since_ts(keyword)
+        posted_ts_utc = self._normalize_listing_timestamp(item)
+
+        if posted_ts_utc is not None:
+            if posted_ts_utc < since_ts_utc:
                 return "posted_ts<since_ts"
         else:
             grace_window = timedelta(minutes=60)
-            now_utc = datetime.now(timezone.utc)
-            since_ts = keyword.since_ts
-            if since_ts.tzinfo is None:
-                since_ts = since_ts.replace(tzinfo=timezone.utc)
-            time_since_subscription = now_utc - since_ts
+            now_utc_value = get_utc_now()
+            time_since_subscription = now_utc_value - since_ts_utc
             if time_since_subscription > grace_window:
                 return "no_posted_ts_beyond_grace"
         

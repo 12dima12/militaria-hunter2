@@ -5,6 +5,8 @@ from typing import Optional, List
 from pydantic import BaseModel, Field
 import uuid
 
+from utils.datetime_utils import now_utc
+
 
 @dataclass
 class Listing:
@@ -42,7 +44,7 @@ class User(BaseModel):
     """User collection"""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     telegram_id: int
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc)
 
 
 def _default_platforms() -> List[str]:
@@ -60,11 +62,11 @@ class Keyword(BaseModel):
     user_id: str
     original_keyword: str  # Original keyword as entered by user
     normalized_keyword: str  # Unicode NFKC normalized, case-insensitive
-    since_ts: datetime  # When subscription was created (UTC)
+    since_ts: datetime = Field(default_factory=now_utc)  # When subscription was created (UTC)
     seen_listing_keys: List[str] = Field(default_factory=list)  # ["platform:platform_id"]
     is_active: bool = True
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=now_utc)
+    updated_at: datetime = Field(default_factory=now_utc)
     
     # Telemetry fields for health monitoring
     baseline_status: str = "pending"  # {"pending","running","partial","error","complete"}
@@ -101,8 +103,8 @@ class StoredListing(BaseModel):
     location: Optional[str] = None
     condition: Optional[str] = None
     seller_name: Optional[str] = None
-    first_seen_ts: datetime = Field(default_factory=datetime.utcnow)
-    last_seen_ts: datetime = Field(default_factory=datetime.utcnow)
+    first_seen_ts: datetime = Field(default_factory=now_utc)
+    last_seen_ts: datetime = Field(default_factory=now_utc)
     posted_ts: Optional[datetime] = None  # Platform posting timestamp (UTC)
     end_ts: Optional[datetime] = None     # Listing end timestamp (UTC)
 
@@ -113,4 +115,4 @@ class Notification(BaseModel):
     user_id: str
     keyword_id: str
     listing_key: str  # "platform:platform_id" for uniqueness
-    sent_at: datetime = Field(default_factory=datetime.utcnow)
+    sent_at: datetime = Field(default_factory=now_utc)
