@@ -794,7 +794,7 @@ async def cmd_hilfe(message: Message):
     help_text = br_join([
         f"🤖 {b('Article Hunter Bot - Hilfe')}",
         "",
-        "Dieser Bot überwacht militaria321.com und egun.de nach neuen Angeboten, die zu Ihren Suchbegriffen passen, und benachrichtigt Sie sofort.",
+        "Dieser Bot überwacht militaria321.com, egun.de und kleinanzeigen.de nach neuen Angeboten, die zu Ihren Suchbegriffen passen, und benachrichtigt Sie sofort.",
         "",
         f"📋 {b('Verfügbare Befehle:')}",
         "",

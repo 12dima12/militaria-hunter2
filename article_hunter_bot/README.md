@@ -32,7 +32,7 @@ A sophisticated Telegram bot that monitors militaria321.com, egun.de und kleinan
    Edit `.env` with your settings:
    ```bash
    TELEGRAM_BOT_TOKEN=your_bot_token_here
-   MONGO_URL=mongodb://mongo:27017
+   MONGO_URL=mongodb://articlehunter:STRONG_PASSWORD@mongo:27017/?authSource=admin
    DB_NAME=article_hunter
 
    # Deep Pagination Configuration (Optional)
@@ -67,9 +67,10 @@ A sophisticated Telegram bot that monitors militaria321.com, egun.de und kleinan
    pip install -r requirements.txt
    ```
 
-2. **Start MongoDB:**
+2. **Start MongoDB & create a dedicated user:**
    ```bash
    mongod --dbpath /path/to/data
+   mongosh --eval "db.getSiblingDB('admin').createUser({user: 'articlehunter', pwd: 'STRONG_PASSWORD', roles: [{role: 'readWrite', db: 'article_hunter'}, {role: 'read', db: 'admin'}]})"
    ```
 
 3. **Configure environment:**
@@ -82,6 +83,18 @@ A sophisticated Telegram bot that monitors militaria321.com, egun.de und kleinan
    ```bash
    python simple_bot.py
    ```
+
+### Database Backups
+
+Always run `mongodump` with the created credentials so the backup is authenticated:
+
+```bash
+mongodump \
+  --uri="mongodb://articlehunter:STRONG_PASSWORD@localhost:27017/article_hunter?authSource=admin" \
+  --out "$(date +%Y-%m-%d)_article_hunter_backup"
+```
+
+Store the dump securely and rotate backups regularly.
 
 ## Deep Pagination System
 
@@ -295,7 +308,7 @@ To add a new platform:
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `TELEGRAM_BOT_TOKEN` | Yes | - | Bot token from @BotFather |
-| `MONGO_URL` | No | `mongodb://localhost:27017` | MongoDB connection string |
+| `MONGO_URL` | No | `mongodb://articlehunter:password@localhost:27017/?authSource=admin` | MongoDB connection string (include user/password) |
 | `DB_NAME` | No | `article_hunter` | Database name |
 | `ADMIN_TELEGRAM_IDS` | No | - | Comma-separated admin user IDs |
 

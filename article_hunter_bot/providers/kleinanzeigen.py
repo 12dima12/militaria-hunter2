@@ -4,6 +4,8 @@ import os
 import random
 import re
 import unicodedata
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import List, Optional
 from urllib.parse import quote, urljoin, urlparse
@@ -16,6 +18,19 @@ from providers.base import BaseProvider
 from utils.datetime_utils import BERLIN, now_utc, to_utc_aware
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _PageParseResult(Sequence[Listing]):
+    listings: List[Listing]
+    items_total: int
+    promoted_skipped: int
+
+    def __len__(self) -> int:
+        return len(self.listings)
+
+    def __getitem__(self, index):
+        return self.listings[index]
 
 
 class KleinanzeigenProvider(BaseProvider):
@@ -85,9 +100,9 @@ class KleinanzeigenProvider(BaseProvider):
         """Construct Kleinanzeigen search URL for keyword/page"""
         slug = self._slugify(keyword)
         if page <= 1:
-            path = f"/s-{slug}/k0"
+            path = f"/s-{slug}/"
         else:
-            path = f"/s-seite:{page}/{slug}/k0"
+            path = f"/s-seite:{page}/{slug}/"
         return urljoin(self.BASE_URL, path)
 
     def _candidate_paths(self, keyword: str, page: int) -> List[str]:
@@ -96,12 +111,14 @@ class KleinanzeigenProvider(BaseProvider):
 
         if page <= 1:
             raw = [
+                f"/s-{slug}/",
                 f"/s-{slug}/k0",
                 f"/s-suchanfrage/{slug}/k0",
                 f"/s/{slug}/k0",
             ]
         else:
             raw = [
+                f"/s-seite:{page}/{slug}/",
                 f"/s-seite:{page}/{slug}/k0",
                 f"/s-seite:{page}/suchanfrage-{slug}/k0",
                 f"/s/{slug}/k0/seite:{page}",
@@ -213,9 +230,89 @@ class KleinanzeigenProvider(BaseProvider):
             "cookieBanner": "1",
             "cookie_consent": "1",
             "topbox": "accepted",
+            "ka_privacy_consent": "essential",
+            "uc_geo_ip": "de",
         }
         for name, value in consent_cookies.items():
-            client.cookies.set(name, value, domain="www.kleinanzeigen.de")
+            for domain in ("www.kleinanzeigen.de", ".kleinanzeigen.de"):
+                client.cookies.set(name, value, domain=domain)
+
+    async def _resolve_consent(
+        self,
+        client: httpx.AsyncClient,
+        response: httpx.Response,
+        *,
+        keyword: Optional[str] = None,
+        page: Optional[int] = None,
+    ) -> bool:
+        """Try to resolve the consent wall by applying cookies and submitting forms."""
+
+        self._apply_consent_cookies(client, response)
+
+        if not response.text:
+            return False
+
+        soup = BeautifulSoup(response.text, "html.parser")
+        form = soup.find("form")
+
+        if not form:
+            return False
+
+        action = form.get("action") or str(response.url)
+        method = (form.get("method") or "get").lower()
+
+        payload: dict[str, str] = {}
+        for input_tag in form.find_all("input"):
+            name = input_tag.get("name")
+            if not name:
+                continue
+
+            input_type = (input_tag.get("type") or "text").lower()
+            if input_type in {"submit", "button"}:
+                continue
+            if input_type in {"checkbox", "radio"} and not input_tag.has_attr("checked"):
+                continue
+
+            payload[name] = input_tag.get("value", "on")
+
+        if not payload:
+            for fallback in ("acceptAll", "accept_all", "all", "accept"):
+                if form.find("input", attrs={"name": fallback}):
+                    payload[fallback] = "1"
+                    break
+
+        target_url = urljoin(str(response.url), action)
+
+        try:
+            if method == "post":
+                await client.post(target_url, data=payload)
+            else:
+                await client.get(target_url, params=payload or None)
+        except httpx.HTTPError as exc:
+            logger.warning(
+                {
+                    "event": "ka_consent_submit_failed",
+                    "platform": self.platform_name,
+                    "q": keyword,
+                    "page": page,
+                    "url": target_url,
+                    "error": str(exc),
+                }
+            )
+            return False
+
+        logger.info(
+            {
+                "event": "ka_consent_submit",
+                "platform": self.platform_name,
+                "q": keyword,
+                "page": page,
+                "url": target_url,
+                "method": method,
+            }
+        )
+
+        return True
 
     async def search(
         self,
@@ -281,7 +378,10 @@ class KleinanzeigenProvider(BaseProvider):
                     break
 
                 html = response.text
-                page_items, items_total, promoted_skipped = self._parse_search_page(html)
+                page_result = self._parse_search_page(html)
+                page_items = list(page_result)
+                items_total = page_result.items_total
+                promoted_skipped = page_result.promoted_skipped
                 organic_count = len(page_items)
 
                 filtered: List[Listing] = []
@@ -453,9 +553,16 @@ class KleinanzeigenProvider(BaseProvider):
 
             if self._is_consent_page(final_url, text_lower):
                 if not consent_retry:
-                    self._apply_consent_cookies(client, response)
                     consent_retry = True
-                    continue
+                    resolved = await self._resolve_consent(
+                        client,
+                        response,
+                        keyword=keyword,
+                        page=page,
+                    )
+                    if resolved:
+                        self._last_error = None
+                        continue
                 self._last_error = "Consent-Bestätigung erforderlich"
                 logger.warning(
                     {
@@ -635,11 +742,11 @@ class KleinanzeigenProvider(BaseProvider):
             return False
         return any(marker in text_lower for marker in self.CAPTCHA_MARKERS)
 
-    def _parse_search_page(self, html: str) -> tuple[List[Listing], int, int]:
+    def _parse_search_page(self, html: str) -> _PageParseResult:
         soup = BeautifulSoup(html, "html.parser")
         marker = self._find_organic_marker(soup)
         if not marker:
-            return [], 0, 0
+            return _PageParseResult([], 0, 0)
 
         listings: List[Listing] = []
         seen: set[str] = set()
@@ -712,7 +819,7 @@ class KleinanzeigenProvider(BaseProvider):
             )
             listings.append(listing)
 
-        return listings, total_items, promoted_skipped
+        return _PageParseResult(listings, total_items, promoted_skipped)
 
     def _find_organic_marker(self, soup: BeautifulSoup) -> Optional[Tag]:
         marker = soup.find(lambda tag: tag.name in {"h1", "h2"} and tag.get_text(strip=True).startswith("Alle Artikel"))

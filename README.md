@@ -1,6 +1,6 @@
 # Telegram Article Hunter Bot - Deployment Guide
 
-This guide will help you deploy the Article Hunter Bot on your own server so it can monitor militaria321.com and egun.de 24/7 and send you notifications.
+This guide will help you deploy the Article Hunter Bot on your own server so it can monitor militaria321.com, egun.de und kleinanzeigen.de 24/7 and send you notifications.
 
 ## What You Need
 
@@ -88,8 +88,8 @@ nano .env
 # Your bot token from BotFather
 TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrSTUvwxyz
 
-# Database settings (keep as is for local MongoDB)
-MONGO_URL=mongodb://localhost:27017
+# Database settings (authentication strongly recommended)
+MONGO_URL=mongodb://articlehunter:STRONG_PASSWORD@localhost:27017/?authSource=admin
 DB_NAME=article_hunter_prod
 
 # Deep Pagination Settings (optional - these are good defaults)
@@ -104,6 +104,31 @@ POLL_INTERVAL_SECONDS=60
 # Your Telegram user ID (optional, for admin commands)
 ADMIN_TELEGRAM_IDS=
 ```
+
+### 6b. Create a dedicated MongoDB user (recommended)
+
+Creating a user with username/password ensures you can run backups securely:
+
+```bash
+mongosh
+```
+
+Inside the Mongo shell:
+
+```javascript
+use admin
+db.createUser({
+  user: "articlehunter",
+  pwd: "STRONG_PASSWORD",
+  roles: [
+    { role: "readWrite", db: "article_hunter_prod" },
+    { role: "read", db: "admin" }
+  ]
+})
+exit
+```
+
+Afterwards adjust `MONGO_URL` in `.env` so the credentials match the newly created user.
 
 **To find your Telegram user ID:**
 1. Message [@userinfobot](https://t.me/userinfobot) on Telegram
@@ -185,6 +210,18 @@ sudo journalctl -u article-hunter-bot -f
 # View recent logs
 sudo journalctl -u article-hunter-bot --since="1 hour ago"
 ```
+
+### 10. Run secure MongoDB backups
+
+Always perform backups with authentication so dumps stay protected:
+
+```bash
+mongodump \
+  --uri="mongodb://articlehunter:STRONG_PASSWORD@localhost:27017/article_hunter_prod?authSource=admin" \
+  --out "$(date +%Y-%m-%d)_article_hunter_backup"
+```
+
+You will be prompted for the password if it is not embedded in the URI. Store the dumps in a secure location and rotate them regularly.
 
 ## Test Your Bot
 
@@ -309,7 +346,7 @@ If you encounter issues:
 
 ## What the Bot Does
 
-- **Monitors militaria321.com & egun.de** every 60 seconds for new items
+- **Monitors militaria321.com, egun.de & kleinanzeigen.de** every 60 seconds for new items
 - **Deep Pagination**: Checks ALL pages, not just the first few
 - **Smart Detection**: Only notifies for genuinely new items
 - **German Interface**: All commands and messages in German
