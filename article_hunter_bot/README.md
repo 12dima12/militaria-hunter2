@@ -32,7 +32,7 @@ A sophisticated Telegram bot that monitors militaria321.com, egun.de und kleinan
    Edit `.env` with your settings:
    ```bash
    TELEGRAM_BOT_TOKEN=your_bot_token_here
-   MONGO_URL=mongodb://mongo:27017
+   MONGO_URL=mongodb://articlehunter:STRONG_PASSWORD@mongo:27017/?authSource=admin
    DB_NAME=article_hunter
 
    # Deep Pagination Configuration (Optional)
@@ -67,9 +67,10 @@ A sophisticated Telegram bot that monitors militaria321.com, egun.de und kleinan
    pip install -r requirements.txt
    ```
 
-2. **Start MongoDB:**
+2. **Start MongoDB & create a dedicated user:**
    ```bash
    mongod --dbpath /path/to/data
+   mongosh --eval "db.getSiblingDB('admin').createUser({user: 'articlehunter', pwd: 'STRONG_PASSWORD', roles: [{role: 'readWrite', db: 'article_hunter'}, {role: 'read', db: 'admin'}]})"
    ```
 
 3. **Configure environment:**
@@ -82,6 +83,18 @@ A sophisticated Telegram bot that monitors militaria321.com, egun.de und kleinan
    ```bash
    python simple_bot.py
    ```
+
+### Database Backups
+
+Always run `mongodump` with the created credentials so the backup is authenticated:
+
+```bash
+mongodump \
+  --uri="mongodb://articlehunter:STRONG_PASSWORD@localhost:27017/article_hunter?authSource=admin" \
+  --out "$(date +%Y-%m-%d)_article_hunter_backup"
+```
+
+Store the dump securely and rotate backups regularly.
 
 ## Deep Pagination System
 
@@ -117,12 +130,13 @@ Result: Kein Artikel wird übersehen.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ENABLE_KLEINANZEIGEN` | `true` | Toggle kleinanzeigen.de provider |
-| `KA_BASE_DELAY_SEC` | `2.8` | Base delay between polling requests |
-| `KA_BASELINE_DELAY_SEC` | `5.0` | Delay between baseline requests |
+| `KA_BASE_DELAY_SEC` | `1.0` | Base delay (~1 req/s) between polling requests |
+| `KA_BASELINE_DELAY_SEC` | `1.2` | Delay between baseline warmup requests |
 | `KA_MAX_RETRIES` | `3` | Max retries per request |
 | `KA_BACKOFF_429_MIN` | `20` | Cooldown minutes after 429 responses |
 | `KA_BACKOFF_403_HOURS` | `6` | Cooldown hours after 403 responses |
 | `KA_COOLDOWN_ON_CAPTCHA_MIN` | `45` | Initial cooldown minutes after CAPTCHA |
+| `KLEINANZEIGEN_RESOLVER` | `http` | Consent resolver: `http` or `playwright` fallback |
 | `NOTIFY_ADMIN_CHAT_ID` | `0` | Telegram chat ID for admin diagnostics |
 
 ### Monitoring
@@ -295,7 +309,7 @@ To add a new platform:
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `TELEGRAM_BOT_TOKEN` | Yes | - | Bot token from @BotFather |
-| `MONGO_URL` | No | `mongodb://localhost:27017` | MongoDB connection string |
+| `MONGO_URL` | No | `mongodb://articlehunter:password@localhost:27017/?authSource=admin` | MongoDB connection string (include user/password) |
 | `DB_NAME` | No | `article_hunter` | Database name |
 | `ADMIN_TELEGRAM_IDS` | No | - | Comma-separated admin user IDs |
 
