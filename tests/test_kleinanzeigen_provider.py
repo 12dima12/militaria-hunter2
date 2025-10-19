@@ -7,10 +7,89 @@ def test_build_search_url_encoding():
     provider = KleinanzeigenProvider()
 
     url = provider.build_search_url("Wehrmacht Helm", page=1)
-    assert url == "https://www.kleinanzeigen.de/s-wehrmacht-helm/"
+    assert url == "https://www.kleinanzeigen.de/s-wehrmacht-helm/k0"
 
     url2 = provider.build_search_url("Ä Ö ß", page=3)
-    assert url2 == "https://www.kleinanzeigen.de/s-seite:3/%C3%A4-%C3%B6-%C3%9F/"
+    assert url2 == "https://www.kleinanzeigen.de/s-%C3%A4-%C3%B6-%C3%9F/seite:3/k0"
+
+
+def test_build_search_url_clamps_to_max_page():
+    provider = KleinanzeigenProvider()
+
+    url = provider.build_search_url("dolch", page=99)
+    assert url == "https://www.kleinanzeigen.de/s-dolch/seite:50/k0"
+
+
+def test_candidate_paths_clamp_to_hard_limit():
+    provider = KleinanzeigenProvider()
+
+    paths = provider._candidate_paths("test", 88)
+    assert paths == ["/s-test/seite:50/k0"]
+
+
+def test_candidate_paths_use_query_segment():
+    provider = KleinanzeigenProvider()
+
+    paths = provider._candidate_paths("kappmesser", 2)
+    assert paths == ["/s-kappmesser/seite:2/k0"]
+
+
+def test_normalize_match_text_handles_umlauts():
+    provider = KleinanzeigenProvider()
+
+    normalized = provider._normalize_match_text("Ärger Straße")
+    assert normalized == "aerger strasse"
+
+
+def test_is_query_reflected_true_for_canonical():
+    provider = KleinanzeigenProvider()
+    normalized_query = provider._normalize_match_text("kappmesser")
+
+    html = """
+    <html>
+      <head>
+        <link rel="canonical" href="https://www.kleinanzeigen.de/s-kappmesser/k0" />
+      </head>
+      <body>
+        <h1>Alle Artikel, die "Kappmesser" in Titel oder Beschreibung enthalten</h1>
+      </body>
+    </html>
+    """
+
+    assert provider._is_query_reflected(
+        "kappmesser",
+        normalized_query,
+        "https://www.kleinanzeigen.de/s-kappmesser/k0",
+        html,
+    )
+
+
+def test_is_query_reflected_false_for_generic_feed():
+    provider = KleinanzeigenProvider()
+    normalized_query = provider._normalize_match_text("kappmesser")
+
+    html = """
+    <html>
+      <body>
+        <h1>Top-Anzeigen</h1>
+        <p>Alle Kategorien</p>
+      </body>
+    </html>
+    """
+
+    assert not provider._is_query_reflected(
+        "kappmesser",
+        normalized_query,
+        "https://www.kleinanzeigen.de/s-alle/k0",
+        html,
+    )
+
+
+def test_fresh_pages_after_baseline_clamped(monkeypatch):
+    monkeypatch.setenv("KA_FRESH_PAGES_AFTER_BASELINE", "80")
+    provider = KleinanzeigenProvider()
+
+    assert provider.fresh_pages_after_baseline == provider.MAX_PAGE_HARD_LIMIT
 
 
 def test_extract_platform_id_from_various_urls():
@@ -62,3 +141,43 @@ def test_parse_search_page_filters_promoted():
     assert listing.price_currency == "EUR"
     assert listing.price_text == "120 € VB"
     assert listing.platform == "kleinanzeigen.de"
+    assert results.match_texts[0].startswith("Test Angebot")
+
+
+def test_detect_consent_banner_ids():
+    html = """
+    <html>
+      <body>
+        <div id="gdpr-banner-title">Willkommen bei Kleinanzeigen</div>
+        <button id="gdpr-banner-accept">Alle akzeptieren</button>
+      </body>
+    </html>
+    """
+
+    assert KleinanzeigenProvider.detect_consent(html) is True
+
+
+def test_detect_consent_without_cards():
+    html = """
+    <html>
+      <body>
+        <div id="gdpr-banner-cmp-button">Einstellungen</div>
+      </body>
+    </html>
+    """
+
+    assert KleinanzeigenProvider.detect_consent(html) is True
+
+
+def test_detect_consent_false_when_results_present():
+    html = """
+    <html>
+      <body>
+        <article data-adid="123"></article>
+        <div>Kein Banner</div>
+      </body>
+    </html>
+    """
+
+    assert KleinanzeigenProvider.detect_consent(html) is False
+
