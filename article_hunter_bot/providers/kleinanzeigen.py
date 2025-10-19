@@ -4,6 +4,8 @@ import os
 import random
 import re
 import unicodedata
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import List, Optional
 from urllib.parse import quote, urljoin, urlparse
@@ -16,6 +18,24 @@ from providers.base import BaseProvider
 from utils.datetime_utils import BERLIN, now_utc, to_utc_aware
 
 logger = logging.getLogger(__name__)
+@dataclass
+class _PageParseResult(Sequence[Listing]):
+    listings: List[Listing]
+    items_total: int
+    promoted_skipped: int
+
+    def __len__(self) -> int:
+        return len(self.listings)
+
+    def __getitem__(self, index):
+        return self.listings[index]
+
+
+CONSENT_ID_MARKERS = (
+    "gdpr-banner-title",
+    "gdpr-banner-accept",
+    "gdpr-banner-cmp-button",
+)
 
 
 class KleinanzeigenProvider(BaseProvider):
@@ -41,8 +61,25 @@ class KleinanzeigenProvider(BaseProvider):
             "off",
         }
 
-        self.base_delay = float(os.environ.get("KA_BASE_DELAY_SEC", "2.8"))
-        self.baseline_delay = float(os.environ.get("KA_BASELINE_DELAY_SEC", "5.0"))
+        self.mode = os.environ.get("KLEINANZEIGEN_MODE", "playwright").strip().lower()
+        if self.mode not in {"http", "playwright"}:
+            logger.warning(
+                {
+                    "event": "ka_mode_invalid",
+                    "provided": self.mode,
+                    "fallback": "playwright",
+                }
+            )
+            self.mode = "playwright"
+
+        self.playwright_headless = self._env_flag("KLEINANZEIGEN_HEADLESS", True)
+        self.playwright_timeout_ms = int(os.environ.get("KLEINANZEIGEN_TIMEOUT_MS", "20000"))
+        self.block_if_consent_fail = self._env_flag(
+            "KLEINANZEIGEN_BLOCK_IF_CONSENT_FAIL", True
+        )
+
+        self.base_delay = float(os.environ.get("KA_BASE_DELAY_SEC", "1.0"))
+        self.baseline_delay = float(os.environ.get("KA_BASELINE_DELAY_SEC", "1.2"))
         self.max_retries = int(os.environ.get("KA_MAX_RETRIES", "3"))
         self.backoff_429_min = float(os.environ.get("KA_BACKOFF_429_MIN", "20"))
         self.backoff_403_hours = float(os.environ.get("KA_BACKOFF_403_HOURS", "6"))
@@ -53,6 +90,11 @@ class KleinanzeigenProvider(BaseProvider):
             "Accept-Encoding": "gzip, deflate, br",
             "Accept-Language": "de-DE,de;q=0.9",
             "Connection": "keep-alive",
+            "Referer": "https://www.kleinanzeigen.de/",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "same-origin",
+            "Upgrade-Insecure-Requests": "1",
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
@@ -73,10 +115,53 @@ class KleinanzeigenProvider(BaseProvider):
         self._pending_events: List[dict] = []
         self._last_error: Optional[str] = None
         self._session_warmed: bool = False
+        self._consent_status: str = "not_detected"
+        self._resolver_used: str = self.mode
+        self._consent_detected_flag: bool = False
+        self._consent_resolved_flag: bool = False
 
     @property
     def platform_name(self) -> str:
         return self.PLATFORM
+
+    @staticmethod
+    def detect_consent(html: Optional[str]) -> bool:
+        if not html:
+            return False
+
+        soup = BeautifulSoup(html, "html.parser")
+        for marker_id in CONSENT_ID_MARKERS:
+            if soup.find(id=marker_id):
+                return True
+
+        has_cards = bool(
+            soup.select("article[data-adid], article[data-id]")
+        )
+
+        if has_cards:
+            return False
+
+        lower = html.lower()
+        return any(marker_id in lower for marker_id in CONSENT_ID_MARKERS)
+
+    def _reset_run_state(self) -> None:
+        self._session_warmed = False
+        self._consent_detected_flag = False
+        self._consent_resolved_flag = False
+        self._consent_status = "not_detected"
+        self._resolver_used = self.mode
+
+    @staticmethod
+    def _env_flag(name: str, default: bool) -> bool:
+        raw = os.environ.get(name)
+        if raw is None:
+            return default
+        value = raw.strip().lower()
+        if value in {"1", "true", "yes", "on"}:
+            return True
+        if value in {"0", "false", "no", "off"}:
+            return False
+        return default
 
     # ------------------------------------------------------------------
     # Public helpers (used by tests and services)
@@ -85,9 +170,9 @@ class KleinanzeigenProvider(BaseProvider):
         """Construct Kleinanzeigen search URL for keyword/page"""
         slug = self._slugify(keyword)
         if page <= 1:
-            path = f"/s-{slug}/k0"
+            path = f"/s-{slug}/"
         else:
-            path = f"/s-seite:{page}/{slug}/k0"
+            path = f"/s-seite:{page}/{slug}/"
         return urljoin(self.BASE_URL, path)
 
     def _candidate_paths(self, keyword: str, page: int) -> List[str]:
@@ -96,12 +181,14 @@ class KleinanzeigenProvider(BaseProvider):
 
         if page <= 1:
             raw = [
+                f"/s-{slug}/",
                 f"/s-{slug}/k0",
                 f"/s-suchanfrage/{slug}/k0",
                 f"/s/{slug}/k0",
             ]
         else:
             raw = [
+                f"/s-seite:{page}/{slug}/",
                 f"/s-seite:{page}/{slug}/k0",
                 f"/s-seite:{page}/suchanfrage-{slug}/k0",
                 f"/s/{slug}/k0/seite:{page}",
@@ -116,25 +203,17 @@ class KleinanzeigenProvider(BaseProvider):
     # ------------------------------------------------------------------
     # BaseProvider implementation
     # ------------------------------------------------------------------
-    async def _warmup_session(self, client: httpx.AsyncClient, mode: str) -> None:
+    async def _warmup_session(
+        self, client: httpx.AsyncClient, mode: str, keyword: str
+    ) -> bool:
         if self._session_warmed:
-            return
+            return True
+
+        delay = self.baseline_delay if mode == "baseline" else self.base_delay
 
         try:
-            delay = self.baseline_delay if mode == "baseline" else self.base_delay
             await self._respect_rate_limit(delay)
             response = await client.get(self.BASE_URL + "/")
-            client.cookies.update(response.cookies)
-            response.raise_for_status()
-            self._session_warmed = True
-            logger.info(
-                {
-                    "event": "ka_warmup",
-                    "platform": self.platform_name,
-                    "status": response.status_code,
-                    "final_url": str(response.url),
-                }
-            )
         except Exception as exc:
             self._pending_events.append(
                 {
@@ -150,6 +229,78 @@ class KleinanzeigenProvider(BaseProvider):
                     "error": str(exc),
                 }
             )
+            self._last_error = str(exc)
+            return False
+
+        client.cookies.update(response.cookies)
+
+        logger.info(
+            {
+                "event": "ka_first_get",
+                "platform": self.platform_name,
+                "status": response.status_code,
+                "url": str(response.url),
+                "via": "http",
+                "q": keyword,
+            }
+        )
+
+        consent_detected = self.detect_consent(response.text)
+        self._consent_detected_flag = consent_detected
+
+        if consent_detected:
+            logger.info(
+                {
+                    "event": "ka_consent_detected",
+                    "platform": self.platform_name,
+                    "url": str(response.url),
+                    "q": keyword,
+                }
+            )
+
+            if self.mode == "playwright":
+                resolved = await self._resolve_consent_playwright(
+                    client, str(response.url), keyword=keyword
+                )
+                if resolved:
+                    self._consent_resolved_flag = True
+                    self._consent_status = "resolved"
+                    self._resolver_used = "playwright"
+                    self._last_error = None
+                    self._session_warmed = True
+                    return True
+
+            snippet = self._sanitize_html_snippet(response.text)
+            logger.warning(
+                {
+                    "event": "ka_consent_resolved",
+                    "platform": self.platform_name,
+                    "success": False,
+                    "reason": (
+                        "playwright_disabled"
+                        if self.mode != "playwright"
+                        else "playwright_failed"
+                    ),
+                    "url": str(response.url),
+                    "q": keyword,
+                    "page": None,
+                    "snippet": snippet,
+                }
+            )
+            self._consent_resolved_flag = False
+            self._consent_status = "blocked"
+            self._last_error = "Consent blockiert"
+            if self.block_if_consent_fail:
+                return False
+
+        else:
+            self._consent_resolved_flag = False
+            self._consent_status = "not_detected"
+            self._resolver_used = "http"
+            self._last_error = None
+
+        self._session_warmed = True
+        return True
 
     async def _fetch_search_page(
         self,
@@ -197,25 +348,176 @@ class KleinanzeigenProvider(BaseProvider):
 
         return None, last_status, last_final_url, last_reason
 
-    @staticmethod
-    def _is_consent_page(final_url: str, text_lower: str) -> bool:
-        if not final_url:
+    async def _resolve_consent_playwright(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        *,
+        keyword: Optional[str] = None,
+        page: Optional[int] = None,
+    ) -> bool:
+        try:
+            from playwright.async_api import (  # type: ignore
+                TimeoutError as PlaywrightTimeoutError,
+                async_playwright,
+            )
+        except Exception as exc:  # pragma: no cover - optional dependency
+            logger.warning(
+                {
+                    "event": "ka_consent_click_ok",
+                    "platform": self.platform_name,
+                    "success": False,
+                    "error": str(exc),
+                    "reason": "import_error",
+                    "url": url,
+                    "q": keyword,
+                    "page": page,
+                }
+            )
             return False
-        final_lower = final_url.lower()
-        if "consent" in final_lower or "datenschutz" in final_lower:
-            return True
-        return "zustimmen" in text_lower or "cookie" in text_lower
 
-    @staticmethod
-    def _apply_consent_cookies(client: httpx.AsyncClient, response: httpx.Response) -> None:
-        client.cookies.update(response.cookies)
-        consent_cookies = {
-            "cookieBanner": "1",
-            "cookie_consent": "1",
-            "topbox": "accepted",
-        }
-        for name, value in consent_cookies.items():
-            client.cookies.set(name, value, domain="www.kleinanzeigen.de")
+        browser = None
+        context = None
+
+        try:
+            async with async_playwright() as playwright:
+                browser = await playwright.chromium.launch(
+                    headless=self.playwright_headless
+                )
+                context = await browser.new_context(
+                    user_agent=self.headers.get("User-Agent"),
+                    locale="de-DE",
+                )
+                page_obj = await context.new_page()
+                await page_obj.goto(
+                    url,
+                    wait_until="domcontentloaded",
+                    timeout=self.playwright_timeout_ms,
+                )
+
+                try:
+                    await page_obj.wait_for_selector(
+                        "#gdpr-banner-accept",
+                        timeout=self.playwright_timeout_ms,
+                    )
+                except PlaywrightTimeoutError:
+                    logger.warning(
+                        {
+                            "event": "ka_consent_click_ok",
+                            "platform": self.platform_name,
+                            "success": False,
+                            "reason": "no_banner",
+                            "url": url,
+                            "q": keyword,
+                            "page": page,
+                        }
+                    )
+                    return False
+
+                try:
+                    await page_obj.click(
+                        "#gdpr-banner-accept",
+                        timeout=self.playwright_timeout_ms,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        {
+                            "event": "ka_consent_click_ok",
+                            "platform": self.platform_name,
+                            "success": False,
+                            "error": str(exc),
+                            "reason": "click_failed",
+                            "url": url,
+                            "q": keyword,
+                            "page": page,
+                        }
+                    )
+                    return False
+
+                try:
+                    await page_obj.wait_for_selector(
+                        "#gdpr-banner-title",
+                        state="detached",
+                        timeout=self.playwright_timeout_ms,
+                    )
+                except PlaywrightTimeoutError:
+                    logger.warning(
+                        {
+                            "event": "ka_consent_click_ok",
+                            "platform": self.platform_name,
+                            "success": False,
+                            "reason": "banner_persist",
+                            "url": url,
+                            "q": keyword,
+                            "page": page,
+                        }
+                    )
+                    return False
+
+                await page_obj.wait_for_timeout(300)
+
+                cookies = await context.cookies()
+                for cookie in cookies:
+                    name = cookie.get("name")
+                    if not name:
+                        continue
+                    value = cookie.get("value", "")
+                    domain = cookie.get("domain") or "www.kleinanzeigen.de"
+                    path = cookie.get("path", "/")
+                    try:
+                        client.cookies.set(name, value, domain=domain, path=path)
+                    except Exception:
+                        continue
+
+                logger.info(
+                    {
+                        "event": "ka_consent_click_ok",
+                        "platform": self.platform_name,
+                        "success": True,
+                        "url": url,
+                        "q": keyword,
+                        "page": page,
+                        "via": "playwright",
+                    }
+                )
+
+                logger.info(
+                    {
+                        "event": "ka_consent_resolved",
+                        "platform": self.platform_name,
+                        "success": True,
+                        "url": url,
+                        "q": keyword,
+                        "page": page,
+                    }
+                )
+
+                return True
+        except Exception as exc:  # pragma: no cover - external dependency
+            logger.warning(
+                {
+                    "event": "ka_consent_click_ok",
+                    "platform": self.platform_name,
+                    "success": False,
+                    "error": str(exc),
+                    "reason": "playwright_error",
+                    "url": url,
+                    "q": keyword,
+                    "page": page,
+                }
+            )
+            return False
+        finally:
+            try:
+                if context is not None:
+                    await context.close()
+            except Exception:
+                pass
+            try:
+                if browser is not None:
+                    await browser.close()
+            except Exception:
+                pass
 
     async def search(
         self,
@@ -227,6 +529,7 @@ class KleinanzeigenProvider(BaseProvider):
     ) -> SearchResult:
         mode = "baseline" if crawl_all else "poll"
 
+        self._reset_run_state()
         metadata = self._build_metadata()
 
         if not self.enabled:
@@ -254,8 +557,16 @@ class KleinanzeigenProvider(BaseProvider):
         last_final_url: Optional[str] = None
 
         async with httpx.AsyncClient(headers=self.headers, timeout=30.0, follow_redirects=True) as client:
-            self._session_warmed = False
-            await self._warmup_session(client, mode)
+            prepared = await self._warmup_session(client, mode, keyword)
+
+            if not prepared and self.block_if_consent_fail:
+                metadata = self._build_metadata()
+                events = self._drain_events()
+                if events:
+                    metadata["events"] = events
+                if self._last_error:
+                    metadata["last_error"] = self._last_error
+                return SearchResult(items=[], pages_scanned=0, metadata=metadata)
 
             page = 1
             while page <= max_pages:
@@ -281,7 +592,10 @@ class KleinanzeigenProvider(BaseProvider):
                     break
 
                 html = response.text
-                page_items, items_total, promoted_skipped = self._parse_search_page(html)
+                page_result = self._parse_search_page(html)
+                page_items = list(page_result)
+                items_total = page_result.items_total
+                promoted_skipped = page_result.promoted_skipped
                 organic_count = len(page_items)
 
                 filtered: List[Listing] = []
@@ -331,6 +645,20 @@ class KleinanzeigenProvider(BaseProvider):
 
         if error_message:
             metadata["last_error"] = error_message
+
+        logger.info(
+            {
+                "event": "ka_search_summary",
+                "platform": self.platform_name,
+                "q": keyword,
+                "pages": pages_scanned,
+                "items": len(items),
+                "has_more": has_more,
+                "resolver": self._resolver_used,
+                "consent_status": self._consent_status,
+                "error": error_message,
+            }
+        )
 
         return SearchResult(
             items=items,
@@ -387,8 +715,42 @@ class KleinanzeigenProvider(BaseProvider):
             "last_error": self._last_error,
             "cooldown_active": self._cooldown_until is not None
             and now_utc() < self._cooldown_until,
+            "resolver": self._resolver_used,
+            "resolver_mode": self.mode,
+            "consent_status": self._consent_status,
+            "consent_detected": self._consent_detected_flag,
+            "consent_resolved": self._consent_resolved_flag,
+            "health_note": self._health_note(),
         }
         return data
+
+    def _health_note(self) -> str:
+        if not self.enabled:
+            return "Deaktiviert"
+
+        now = now_utc()
+        if self._captcha_state == "entered":
+            if self._cooldown_until and now < self._cooldown_until:
+                minutes = int(max(1, (self._cooldown_until - now).total_seconds() // 60))
+                return f"Captcha erkannt — Pause aktiv ({minutes} min)"
+            return "Captcha erkannt — Pause beendet"
+
+        if self._cooldown_until and now < self._cooldown_until:
+            minutes = int(max(1, (self._cooldown_until - now).total_seconds() // 60))
+            return f"Cooldown aktiv ({minutes} min)"
+
+        if self._consent_status == "blocked":
+            return "Consent blockiert"
+
+        if self._consent_status == "resolved":
+            if self._resolver_used == "playwright":
+                return "Consent OK (Playwright)"
+            return "Consent OK"
+
+        if self._consent_status == "not_detected":
+            return "Consent nicht erforderlich"
+
+        return "Status unbekannt"
 
     def _drain_events(self) -> List[dict]:
         events = list(self._pending_events)
@@ -401,15 +763,23 @@ class KleinanzeigenProvider(BaseProvider):
         return now_utc() >= self._cooldown_until
 
     async def _respect_rate_limit(self, delay: float) -> None:
-        delay = max(0.5, delay)
+        delay = max(0.3, delay)
         async with self._rate_lock:
             now = now_utc()
             if self._last_request_at is not None:
                 elapsed = (now - self._last_request_at).total_seconds()
-                wait_for = delay + random.uniform(0.2, 0.8) - elapsed
+                target = delay + random.uniform(0.0, 0.3)
+                wait_for = target - elapsed
                 if wait_for > 0:
                     await asyncio.sleep(wait_for)
             self._last_request_at = now_utc()
+
+    @staticmethod
+    def _sanitize_html_snippet(html: Optional[str], limit: int = 2048) -> str:
+        if not html:
+            return ""
+        snippet = re.sub(r"\s+", " ", html)
+        return snippet[:limit]
 
     async def _request(
         self,
@@ -431,6 +801,16 @@ class KleinanzeigenProvider(BaseProvider):
 
         for attempt in range(self.max_retries):
             try:
+                logger.info(
+                    {
+                        "event": "ka_request",
+                        "platform": self.platform_name,
+                        "url": url,
+                        "attempt": attempt + 1,
+                        "mode": mode,
+                        "resolver": "http",
+                    }
+                )
                 response = await client.get(url)
             except httpx.HTTPError as exc:
                 last_exc = exc
@@ -439,7 +819,8 @@ class KleinanzeigenProvider(BaseProvider):
 
             final_url = str(response.url)
             status = response.status_code
-            text_lower = response.text.lower() if response.text else ""
+            text = response.text or ""
+            text_lower = text.lower()
 
             if status in (403, 429, 503):
                 self._handle_block(
@@ -451,22 +832,60 @@ class KleinanzeigenProvider(BaseProvider):
                 )
                 return None, status, final_url, "block"
 
-            if self._is_consent_page(final_url, text_lower):
+            consent_present = self.detect_consent(text)
+            if consent_present:
+                self._consent_detected_flag = True
                 if not consent_retry:
-                    self._apply_consent_cookies(client, response)
                     consent_retry = True
-                    continue
-                self._last_error = "Consent-Bestätigung erforderlich"
-                logger.warning(
-                    {
-                        "event": "ka_consent_block",
-                        "platform": self.platform_name,
-                        "q": keyword,
-                        "page": page,
-                        "url": final_url,
-                    }
-                )
-                return None, status, final_url, "consent"
+                    logger.info(
+                        {
+                            "event": "ka_consent_detected",
+                            "platform": self.platform_name,
+                            "q": keyword,
+                            "page": page,
+                            "url": final_url,
+                        }
+                    )
+
+                    if self.mode == "playwright":
+                        resolved = await self._resolve_consent_playwright(
+                            client,
+                            final_url,
+                            keyword=keyword,
+                            page=page,
+                        )
+                        if resolved:
+                            self._consent_resolved_flag = True
+                            self._consent_status = "resolved"
+                            self._resolver_used = "playwright"
+                            self._last_error = None
+                            continue
+
+                    snippet = self._sanitize_html_snippet(text)
+                    logger.warning(
+                        {
+                            "event": "ka_consent_resolved",
+                            "platform": self.platform_name,
+                            "success": False,
+                            "reason": (
+                                "playwright_disabled"
+                                if self.mode != "playwright"
+                                else "playwright_failed"
+                            ),
+                            "url": final_url,
+                            "q": keyword,
+                            "page": page,
+                            "snippet": snippet,
+                        }
+                    )
+                    self._consent_resolved_flag = False
+                    self._consent_status = "blocked"
+                    self._last_error = "Consent blockiert"
+                    if self.block_if_consent_fail:
+                        return None, status, final_url, "consent"
+                else:
+                    if self.block_if_consent_fail:
+                        return None, status, final_url, "consent"
 
             if self._detect_captcha(text_lower) or "/captcha" in final_url.lower():
                 self._handle_captcha_detected(
@@ -488,6 +907,12 @@ class KleinanzeigenProvider(BaseProvider):
 
             self._handle_captcha_recovered()
             self._last_error = None
+            if self._consent_resolved_flag:
+                self._consent_status = "resolved"
+            elif self._consent_status not in {"blocked", "resolved"}:
+                self._consent_status = "not_detected"
+            if self._resolver_used != "playwright":
+                self._resolver_used = "http"
             return response, status, final_url, None
 
         if last_exc:
@@ -592,16 +1017,9 @@ class KleinanzeigenProvider(BaseProvider):
         }
         self._pending_events.append(recaptcha_event)
 
-        logger.warning(
-            {
-                "event": "ka_recaptcha",
-                "platform": self.platform_name,
-                "q": keyword,
-                "page": page,
-                "url": final_url or url,
-                "status": status,
-            }
-        )
+        captcha_log = {**recaptcha_event, "event": "ka_captcha_detected"}
+        self._pending_events.append(captcha_log)
+        logger.warning(captcha_log)
 
     def _handle_captcha_recovered(self) -> None:
         if self._captcha_state != "entered":
@@ -635,11 +1053,11 @@ class KleinanzeigenProvider(BaseProvider):
             return False
         return any(marker in text_lower for marker in self.CAPTCHA_MARKERS)
 
-    def _parse_search_page(self, html: str) -> tuple[List[Listing], int, int]:
+    def _parse_search_page(self, html: str) -> _PageParseResult:
         soup = BeautifulSoup(html, "html.parser")
         marker = self._find_organic_marker(soup)
         if not marker:
-            return [], 0, 0
+            return _PageParseResult([], 0, 0)
 
         listings: List[Listing] = []
         seen: set[str] = set()
@@ -712,7 +1130,7 @@ class KleinanzeigenProvider(BaseProvider):
             )
             listings.append(listing)
 
-        return listings, total_items, promoted_skipped
+        return _PageParseResult(listings, total_items, promoted_skipped)
 
     def _find_organic_marker(self, soup: BeautifulSoup) -> Optional[Tag]:
         marker = soup.find(lambda tag: tag.name in {"h1", "h2"} and tag.get_text(strip=True).startswith("Alle Artikel"))
