@@ -287,6 +287,27 @@ async def cmd_check(message: Message):
             else:
                 response_lines.append("  Fehler: Keine")
 
+            metadata = data.get("metadata") or {}
+            health_note = metadata.get("health_note") or data.get("health_note")
+            if health_note:
+                response_lines.append(f"  Status: {htmlesc(health_note)}")
+
+            consent_status = metadata.get("consent_status")
+            resolver_used = metadata.get("resolver")
+            if consent_status:
+                consent_display = {
+                    "resolved": "OK",
+                    "not_detected": "Nicht erforderlich",
+                    "blocked": "Blockiert",
+                    "unknown": "Unbekannt",
+                }.get(consent_status, consent_status)
+                resolver_label = ""
+                if resolver_used and resolver_used != "http":
+                    resolver_label = f" via {resolver_used}"
+                response_lines.append(
+                    f"  Consent: {htmlesc(consent_display)}{htmlesc(resolver_label)}"
+                )
+
             since_ts = data.get("since_ts")
             if since_ts:
                 response_lines.append(f"  since_ts: {htmlesc(since_ts)}")
@@ -794,7 +815,7 @@ async def cmd_hilfe(message: Message):
     help_text = br_join([
         f"🤖 {b('Article Hunter Bot - Hilfe')}",
         "",
-        "Dieser Bot überwacht militaria321.com und egun.de nach neuen Angeboten, die zu Ihren Suchbegriffen passen, und benachrichtigt Sie sofort.",
+        "Dieser Bot überwacht militaria321.com, egun.de und kleinanzeigen.de nach neuen Angeboten, die zu Ihren Suchbegriffen passen, und benachrichtigt Sie sofort.",
         "",
         f"📋 {b('Verfügbare Befehle:')}",
         "",

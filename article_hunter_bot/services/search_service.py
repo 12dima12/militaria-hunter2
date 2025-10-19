@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Literal
 
 from database import DatabaseManager
-from models import Keyword, Listing, StoredListing
+from models import Keyword, Listing, SearchResult, StoredListing
 from providers import get_all_providers
 from utils.text import br_join, b, i, a, code, fmt_ts_de, fmt_price_de
 from utils.datetime_utils import now_utc as get_utc_now, to_utc_aware
@@ -62,7 +62,7 @@ class SearchService:
             if non_id_keys:
                 logger.info(f"Keyword {keyword.normalized_keyword} has non-ID-based seen_listing_keys - triggering migration")
                 needs_migration = True
-        
+
         if needs_migration:
             try:
                 await self.reseed_seen_keys_for_keyword(keyword.id)
@@ -73,15 +73,15 @@ class SearchService:
             except Exception as e:
                 logger.error(f"Migration failed for {keyword.normalized_keyword}: {e}")
                 # Continue with polling even if migration fails
-        
-        all_new_items = []
-        seen_this_run = set()  # In-run deduplication
+
+        all_new_items: List[Listing] = []
+        seen_this_run: set[str] = set()
 
         await self._ensure_keyword_platforms(keyword)
+        since_ts_original = keyword.since_ts
         since_ts_utc = self._normalize_since_ts(keyword)
 
-        # Determine polling mode: rotate has been disabled globally; ensure keywords follow suit
-        stored_poll_mode = getattr(keyword, 'poll_mode', POLL_MODE)
+        stored_poll_mode = getattr(keyword, "poll_mode", POLL_MODE)
         normalized_poll_mode = (stored_poll_mode or "").lower()
         if normalized_poll_mode != "full":
             logger.info(
@@ -101,263 +101,249 @@ class SearchService:
                 )
 
         poll_mode = "full"
-        poll_window = getattr(keyword, 'poll_window', POLL_WINDOW)
-        total_pages_estimate = getattr(keyword, 'total_pages_estimate', None)
-        poll_cursor_page = getattr(keyword, 'poll_cursor_page', 1)
-        
-        # Get militaria321 provider
-        militaria_provider = self.providers["militaria321.com"]
-        
-        try:
-            # Determine which pages to scan based on polling mode
-            pages_to_scan = self._determine_pages_to_scan(
-                poll_mode, poll_cursor_page, poll_window, 
-                total_pages_estimate, PRIMARY_PAGES, MAX_PAGES_PER_CYCLE
-            )
-            
-            logger.info({
+        poll_window = getattr(keyword, "poll_window", POLL_WINDOW)
+        total_pages_estimate = getattr(keyword, "total_pages_estimate", None)
+        poll_cursor_page = getattr(keyword, "poll_cursor_page", 1)
+
+        provider_results: dict[str, SearchResult] = {}
+        per_platform_items: dict[str, List[Listing]] = {}
+        per_platform_unseen: dict[str, List[Listing]] = {}
+        per_platform_stats: dict[str, dict[str, int]] = {}
+        all_items: List[Listing] = []
+
+        logger.info(
+            {
                 "event": "poll_start",
                 "keyword": keyword.normalized_keyword,
                 "mode": poll_mode,
-                "pages_to_scan": pages_to_scan,
                 "cursor_start": poll_cursor_page,
-                "window_size": poll_window
-            })
-            
-            # Use provider's built-in crawl_all mode to scan all available pages efficiently
-            max_pages_to_scan = min(len(pages_to_scan), MAX_PAGES_PER_CYCLE)
-            
-            result = await militaria_provider.search(
-                keyword=keyword.original_keyword,
-                since_ts=since_ts_utc,
-                crawl_all=True,  # Scan ALL pages to prevent missed items
-                max_pages_override=max_pages_to_scan
-            )
+                "window_size": poll_window,
+            }
+        )
 
-            await self._handle_provider_metadata(
-                militaria_provider.platform_name, result.metadata, keyword
-            )
-            
-            militaria_pages_scanned = result.pages_scanned or 0
-            all_items = result.items
-            unseen_candidates = 0
-            pushed_count = 0
-            absorbed_count = 0
-            
-            # Process and deduplicate all items
-            unique_items = []
-            for item in all_items:
-                listing_key = self._build_canonical_listing_key(item)
-
-                # Skip duplicates within this run
-                if listing_key in seen_this_run:
-                    continue
-
-                seen_this_run.add(listing_key)
-
-                # Update item with canonical key for consistency
-                item.platform_id = listing_key.split(':', 1)[1]  # Extract ID part
-                self._normalize_listing_timestamp(item)
-                unique_items.append(item)
-                
-                # Track unseen candidates (not in baseline)
-                if listing_key not in keyword.seen_listing_keys:
-                    unseen_candidates += 1
-            
-            all_items = unique_items
-            
-            logger.info({
-                "event": "deep_scan_complete",
-                "q": keyword.normalized_keyword,
-                "pages_scanned": militaria_pages_scanned,
-                "total_items_found": len(all_items),
-                "unseen_candidates": unseen_candidates,
-                "max_pages_allowed": max_pages_to_scan
-            })
-
-            # Collect results from additional providers (e.g., egun.de)
+        try:
             for platform_name, provider in self.providers.items():
-                if platform_name == "militaria321.com":
-                    continue
                 if platform_name not in getattr(keyword, "platforms", [platform_name]):
                     continue
 
                 try:
-                    provider_result = await provider.search(
+                    crawl_all_flag = True
+                    pages_override = MAX_PAGES_PER_CYCLE
+
+                    if platform_name == "kleinanzeigen.de":
+                        ka_cap = getattr(provider, "MAX_PAGE_HARD_LIMIT", 50)
+                        baseline_complete = getattr(keyword, "baseline_status", "") == "complete"
+                        if baseline_complete:
+                            crawl_all_flag = False
+                            pages_override = min(
+                                max(1, getattr(provider, "fresh_pages_after_baseline", 5)),
+                                ka_cap,
+                            )
+                        else:
+                            crawl_all_flag = True
+                            pages_override = min(
+                                max(1, getattr(provider, "max_pages_config", ka_cap)),
+                                ka_cap,
+                            )
+
+                    result = await provider.search(
                         keyword=keyword.original_keyword,
                         since_ts=since_ts_utc,
-                        crawl_all=True
+                        crawl_all=crawl_all_flag,
+                        max_pages_override=pages_override,
                     )
-                    await self._handle_provider_metadata(
-                        platform_name, provider_result.metadata, keyword
-                    )
+                    provider_results[platform_name] = result
+                    await self._handle_provider_metadata(platform_name, result.metadata, keyword)
                 except Exception as exc:
-                    logger.error(f"Error searching {platform_name}: {exc}")
+                    error_msg = str(exc)[:400]
+                    logger.error(f"Error searching {platform_name}: {error_msg}")
+                    self.provider_status[platform_name] = {
+                        "last_error": error_msg,
+                        "enabled": getattr(provider, "enabled", True),
+                    }
                     continue
+
+                stats = per_platform_stats.setdefault(
+                    platform_name,
+                    {"pages_scanned": 0, "items": 0, "unseen": 0, "already_known": 0, "pushed": 0},
+                )
+                stats["pages_scanned"] = result.pages_scanned or 0
+
+                deduped_items: List[Listing] = []
+                for item in result.items:
+                    listing_key = self._build_canonical_listing_key(item)
+                    if listing_key in seen_this_run:
+                        continue
+                    seen_this_run.add(listing_key)
+
+                    original_posted_ts = item.posted_ts
+                    posted_ts_utc = self._normalize_listing_timestamp(item)
+                    self._log_tz_compare(
+                        keyword,
+                        since_ts_original,
+                        original_posted_ts,
+                        since_ts_utc,
+                        posted_ts_utc,
+                    )
+
+                    deduped_items.append(item)
+                    stats["items"] += 1
+
+                    if listing_key not in keyword.seen_listing_keys:
+                        stats["unseen"] += 1
+                        per_platform_unseen.setdefault(platform_name, []).append(item)
+                    else:
+                        stats["already_known"] += 1
+
+                if deduped_items:
+                    per_platform_items.setdefault(platform_name, []).extend(deduped_items)
+                    all_items.extend(deduped_items)
 
                 logger.info(
                     {
                         "event": "provider_summary",
                         "platform": platform_name,
                         "q": keyword.normalized_keyword,
-                        "pages_scanned": provider_result.pages_scanned,
-                        "items_found": len(provider_result.items),
+                        "pages_scanned": result.pages_scanned,
+                        "items_found": len(deduped_items),
+                        "items_total": len(result.items),
                     }
                 )
 
-                for item in provider_result.items:
+            for platform_name, items in per_platform_unseen.items():
+                provider = self.providers.get(platform_name)
+                if provider and hasattr(provider, "fetch_posted_ts_batch") and items:
+                    try:
+                        await provider.fetch_posted_ts_batch(items, concurrency=DETAIL_CONCURRENCY)
+                    except Exception as exc:
+                        logger.warning(f"Detail fetch failed for {platform_name}: {exc}")
+                self._apply_posted_ts_fallback(items)
+
+            self._apply_posted_ts_fallback(all_items)
+
+            new_seen_keys: List[str] = []
+            pushed_count = 0
+            absorbed_count = 0
+
+            for platform_name, items in per_platform_unseen.items():
+                stats = per_platform_stats.setdefault(
+                    platform_name,
+                    {"pages_scanned": 0, "items": 0, "unseen": 0, "already_known": 0, "pushed": 0},
+                )
+                for item in items:
                     listing_key = self._build_canonical_listing_key(item)
-                    if listing_key in seen_this_run:
+                    if listing_key in keyword.seen_listing_keys:
                         continue
-                    seen_this_run.add(listing_key)
-                    if listing_key not in keyword.seen_listing_keys:
-                        unseen_candidates += 1
-                    all_items.append(item)
 
-            # Enrich unseen items with posted_ts/price
-            unseen_items = []
-            for item in all_items:
-                listing_key = self._build_canonical_listing_key(item)
-                if listing_key not in keyword.seen_listing_keys:
-                    unseen_items.append(item)
+                    new_seen_keys.append(listing_key)
 
-            if unseen_items:
-                unseen_by_platform: dict[str, List[Listing]] = {}
-                for item in unseen_items:
-                    unseen_by_platform.setdefault(item.platform, []).append(item)
-
-                for platform_name, items in unseen_by_platform.items():
-                    provider = self.providers.get(platform_name)
-                    if provider and hasattr(provider, "fetch_posted_ts_batch"):
-                        try:
-                            await provider.fetch_posted_ts_batch(items, concurrency=DETAIL_CONCURRENCY)
-                        except Exception as exc:
-                            logger.warning(f"Detail fetch failed for {platform_name}: {exc}")
-                    self._apply_posted_ts_fallback(items)
-            
-            # Apply strict newness gating to all collected items
-            new_seen_keys = []
-            for item in all_items:
-                listing_key = self._build_canonical_listing_key(item)
-                
-                # Check if already seen
-                if listing_key in keyword.seen_listing_keys:
-                    continue
-                
-                # Add to seen set regardless of newness (idempotent baseline expansion)
-                new_seen_keys.append(listing_key)
-                
-                # Apply newness gating for push notifications
-                if self._is_new_listing(item, keyword):
-                    all_new_items.append(item)
-                    pushed_count += 1
-                    
-                    # Log decision with detailed reason
-                    if item.posted_ts is not None:
-                        reason = "posted_ts>=since_ts"
+                    if self._is_new_listing(item, keyword):
+                        all_new_items.append(item)
+                        pushed_count += 1
+                        stats["pushed"] = stats.get("pushed", 0) + 1
+                        reason = "posted_ts>=since_ts" if item.posted_ts else "grace_window_allowed"
+                        logger.info(
+                            {
+                                "event": "decision",
+                                "platform": item.platform,
+                                "keyword_norm": keyword.normalized_keyword,
+                                "listing_key": listing_key,
+                                "posted_ts_utc": item.posted_ts.isoformat() if item.posted_ts else None,
+                                "since_ts_utc": keyword.since_ts.isoformat(),
+                                "decision": "pushed",
+                                "reason": reason,
+                            }
+                        )
                     else:
-                        reason = "grace_window_allowed"
-                    
-                    logger.info({
-                        "event": "decision",
-                        "platform": item.platform,
-                        "keyword_norm": keyword.normalized_keyword,
-                        "listing_key": listing_key,
-                        "posted_ts_utc": item.posted_ts.isoformat() if item.posted_ts else None,
-                        "since_ts_utc": keyword.since_ts.isoformat(),
-                        "decision": "pushed",
-                        "reason": reason
-                    })
-                else:
-                    absorbed_count += 1
-                    # Item fails newness gate but should be added to seen set
-                    reason = self._get_filter_reason(item, keyword)
-                    logger.info({
-                        "event": "decision",
-                        "platform": item.platform,
-                        "keyword_norm": keyword.normalized_keyword,
-                        "listing_key": listing_key,
-                        "posted_ts_utc": item.posted_ts.isoformat() if item.posted_ts else None,
-                        "since_ts_utc": keyword.since_ts.isoformat(),
-                        "decision": "absorbed",
-                        "reason": reason
-                    })
-            
-            # Update seen_listing_keys in database
+                        absorbed_count += 1
+                        reason = self._get_filter_reason(item, keyword)
+                        logger.info(
+                            {
+                                "event": "decision",
+                                "platform": item.platform,
+                                "keyword_norm": keyword.normalized_keyword,
+                                "listing_key": listing_key,
+                                "posted_ts_utc": item.posted_ts.isoformat() if item.posted_ts else None,
+                                "since_ts_utc": keyword.since_ts.isoformat(),
+                                "decision": "absorbed",
+                                "reason": reason,
+                            }
+                        )
+
             if new_seen_keys:
                 await self.db.db.keywords.update_one(
                     {"id": keyword.id},
-                    {"$addToSet": {"seen_listing_keys": {"$each": new_seen_keys}}}
+                    {"$addToSet": {"seen_listing_keys": {"$each": new_seen_keys}}},
                 )
-            
-            # Update poll cursor for rotating mode
-            if poll_mode == "rotate" and militaria_pages_scanned > 0:
-                new_cursor = (poll_cursor_page + poll_window)
-                if total_pages_estimate and new_cursor > total_pages_estimate:
-                    new_cursor = 1  # Wrap around
-                
-                await self.db.db.keywords.update_one(
-                    {"id": keyword.id},
-                    {"$set": {"poll_cursor_page": new_cursor}}
-                )
-            
-            # Log poll summary
-            logger.info({
-                "event": "poll_summary",
-                "keyword": keyword.normalized_keyword,
-                "mode": poll_mode,
-                "pages_scanned": militaria_pages_scanned,
-                "primary_pages": PRIMARY_PAGES,
-                "cursor_start": poll_cursor_page,
-                "window_size": poll_window,
-                "unseen_candidates": unseen_candidates,
-                "pushed": pushed_count,
-                "absorbed": absorbed_count
-            })
-            
-            # Update total_pages_estimate if missing (for proper rotating deep-scan)
+
+            unseen_candidates = sum(stats.get("unseen", 0) for stats in per_platform_stats.values())
+
+            militaria_pages_scanned = per_platform_stats.get("militaria321.com", {}).get("pages_scanned", 0)
+
+            logger.info(
+                {
+                    "event": "poll_summary",
+                    "keyword": keyword.normalized_keyword,
+                    "mode": poll_mode,
+                    "pages_scanned": {
+                        platform: stats.get("pages_scanned", 0)
+                        for platform, stats in per_platform_stats.items()
+                    },
+                    "unseen_candidates": unseen_candidates,
+                    "pushed": pushed_count,
+                    "absorbed": absorbed_count,
+                }
+            )
+
             if total_pages_estimate is None and militaria_pages_scanned > 0:
-                # Estimate based on baseline data or use a reasonable default
-                baseline_pages = getattr(keyword, 'baseline_pages_scanned', {})
-                militaria_pages = baseline_pages.get('militaria321.com', 0)
-                
+                baseline_pages = getattr(keyword, "baseline_pages_scanned", {})
+                militaria_pages = baseline_pages.get("militaria321.com", 0)
                 if militaria_pages > 0:
                     estimated_pages = militaria_pages
                 else:
-                    # Conservative estimate based on cursor position
                     estimated_pages = max(poll_cursor_page + 50, 100)
-                
-                # Update in database
+
                 await self.db.db.keywords.update_one(
                     {"id": keyword.id},
-                    {"$set": {"total_pages_estimate": estimated_pages}}
+                    {"$set": {"total_pages_estimate": estimated_pages}},
                 )
-                logger.info(f"Updated total_pages_estimate for '{keyword.normalized_keyword}': {estimated_pages} (was None)")
-            
-        except Exception as e:
-            logger.error(f"Error in deep polling for {militaria_provider.platform_name}: {e}")
-            
-            # Update telemetry on error
+                logger.info(
+                    f"Updated total_pages_estimate for '{keyword.normalized_keyword}': {estimated_pages} (was None)"
+                )
+
+            for platform_name, stats in per_platform_stats.items():
+                status = self.provider_status.get(platform_name, {})
+                status.update(
+                    {
+                        "pages": stats.get("pages_scanned", 0),
+                        "items": stats.get("items", 0),
+                        "unseen_candidates": stats.get("unseen", 0),
+                        "pushed": stats.get("pushed", 0),
+                        "already_known": stats.get("already_known", 0),
+                    }
+                )
+                self.provider_status[platform_name] = status
+
+        except Exception as exc:
+            logger.error(f"Error in deep polling for {keyword.normalized_keyword}: {exc}")
+
             now = get_utc_now()
             keyword.last_checked = now
             keyword.last_error_ts = now
             keyword.consecutive_errors += 1
-            keyword.last_error_message = str(e)[:500]
-            
-            # Update in database
+            keyword.last_error_message = str(exc)[:500]
+
             await self._update_keyword_telemetry(keyword)
             return all_new_items
-        
-        # Update telemetry on success
+
         now = get_utc_now()
         keyword.last_checked = now
         keyword.last_success_ts = now
         keyword.consecutive_errors = 0
         keyword.last_error_message = None
-        
-        # Update in database
+
         await self._update_keyword_telemetry(keyword)
-        
+
         return all_new_items
     
     def _determine_pages_to_scan(
@@ -476,7 +462,7 @@ class SearchService:
                             "error": str(exc),
                         }
                     )
-            elif event_name == "ka_recaptcha" and keyword is not None:
+            elif event_name in {"ka_recaptcha", "ka_captcha_detected"} and keyword is not None:
                 try:
                     user = await self.db.get_user_by_id(keyword.user_id)
                     if user:
