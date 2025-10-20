@@ -1,6 +1,6 @@
 # Telegram Article Hunter Bot - Deployment Guide
 
-This guide will help you deploy the Article Hunter Bot on your own server so it can monitor militaria321.com, egun.de und kleinanzeigen.de 24/7 and send you notifications.
+This guide will help you deploy the Article Hunter Bot on your own server so it can monitor militaria321.com, egun.de, markt.de und kleinanzeigen.de 24/7 and send you notifications.
 
 ## What You Need
 
@@ -365,7 +365,7 @@ If you encounter issues:
 
 ## What the Bot Does
 
-- **Monitors militaria321.com, egun.de & kleinanzeigen.de** every 60 seconds for new items
+- **Monitors militaria321.com, egun.de, markt.de & kleinanzeigen.de** every 60 seconds for new items
 - **Deep Pagination**: Checks ALL pages, not just the first few
 - **Smart Detection**: Only notifies for genuinely new items
 - **German Interface**: All commands and messages in German

@@ -5,6 +5,7 @@ from providers.base import BaseProvider
 from providers.militaria321 import Militaria321Provider
 from providers.egun import EgunProvider
 from providers.kleinanzeigen import KleinanzeigenProvider
+from providers.marktde import MarktDeProvider
 
 
 def get_all_providers() -> Dict[str, BaseProvider]:
@@ -12,6 +13,7 @@ def get_all_providers() -> Dict[str, BaseProvider]:
     providers = {
         "militaria321.com": Militaria321Provider(),
         "egun.de": EgunProvider(),
+        "markt.de": MarktDeProvider(),
     }
 
     kleinanzeigen = KleinanzeigenProvider()

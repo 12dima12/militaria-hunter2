@@ -141,7 +141,11 @@ async def cmd_search(message: Message):
     
     try:
         # Create keyword subscription
-        provider_platforms = list(search_service.providers.keys()) if search_service else ["militaria321.com", "egun.de"]
+        provider_platforms = list(search_service.providers.keys()) if search_service else [
+            "militaria321.com",
+            "egun.de",
+            "markt.de",
+        ]
         keyword = Keyword(
             user_id=user.id,
             original_keyword=keyword_text,
@@ -237,6 +241,7 @@ async def cmd_check(message: Message):
         platform_urls = {
             "militaria321.com": "https://www.militaria321.com",
             "egun.de": "https://www.egun.de/market",
+            "markt.de": "https://www.markt.de",
             "kleinanzeigen.de": "https://www.kleinanzeigen.de",
         }
 
@@ -815,7 +820,7 @@ async def cmd_hilfe(message: Message):
     help_text = br_join([
         f"🤖 {b('Article Hunter Bot - Hilfe')}",
         "",
-        "Dieser Bot überwacht militaria321.com, egun.de und kleinanzeigen.de nach neuen Angeboten, die zu Ihren Suchbegriffen passen, und benachrichtigt Sie sofort.",
+        "Dieser Bot überwacht militaria321.com, egun.de, markt.de und kleinanzeigen.de nach neuen Angeboten, die zu Ihren Suchbegriffen passen, und benachrichtigt Sie sofort.",
         "",
         f"📋 {b('Verfügbare Befehle:')}",
         "",
