@@ -1,10 +1,10 @@
 # Telegram Article Hunter Bot
 
-A sophisticated Telegram bot that monitors militaria321.com, egun.de und kleinanzeigen.de for new listings matching user-defined keywords, delivering immediate push notifications with deep pagination support to ensure no new items are missed.
+A sophisticated Telegram bot that monitors militaria321.com, egun.de, markt.de und kleinanzeigen.de for new listings matching user-defined keywords, delivering immediate push notifications with deep pagination support to ensure no new items are missed.
 
 ## Features
 
-- **Multi-Platform Monitoring**: Watches militaria321.com, egun.de & kleinanzeigen.de with shared newness gating
+- **Multi-Platform Monitoring**: Watches militaria321.com, egun.de, markt.de & kleinanzeigen.de with shared newness gating
 - **Full-Scan Deep Pagination**: Monitors all pages, solving militaria321.com's end-date sorting issue
 - **Legacy Rotation Migration**: Old rotate-mode subscriptions are auto-upgraded to full scans
 - **German Commands**: `/search`, `/list`, `/check`, `/delete`, `/hilfe`
@@ -156,14 +156,14 @@ The `/list` command shows enhanced telemetry:
 Status: ✅ Läuft — Letzte Prüfung erfolgreich
 Letzte Prüfung: 05.10.2025 16:19 Uhr — Letzter Erfolg: 05.10.2025 16:19 Uhr
 Baseline: complete
-Plattformen: militaria321.com, egun.de, kleinanzeigen.de
+Plattformen: militaria321.com, egun.de, markt.de, kleinanzeigen.de
 Poll: Modus: full (Alle Seiten) — Seiten: ~45
 ```
 
 ## Commands
 
 ### `/search <keyword>`
-Create a subscription for `<keyword>`. Runs full baseline crawl across ALL pages on militaria321.com, collects organic egun.de results, seeds seen items (no initial notifications), then starts deep pagination polling.
+Create a subscription for `<keyword>`. Runs full baseline crawl across ALL pages on militaria321.com, collects organic egun.de and markt.de results, seeds seen items (no initial notifications), then starts deep pagination polling.
 
 **Example:**
 ```
@@ -193,7 +193,7 @@ Ihre aktiven Überwachungen:
 Status: ✅ Läuft — Letzte Prüfung erfolgreich  
 Letzte Prüfung: 05.10.2025 16:19 Uhr — Letzter Erfolg: 05.10.2025 16:19 Uhr
 Baseline: complete
-Plattformen: militaria321.com, egun.de, kleinanzeigen.de
+Plattformen: militaria321.com, egun.de, markt.de, kleinanzeigen.de
 Poll: Modus: full (Alle Seiten) — Seiten: ~45
 
 [🔍 Diagnostik] [🗑️ Löschen]
@@ -212,8 +212,8 @@ Manual verification and backfill command. Detects any pending/unprocessed listin
 🔍 Manuelle Verifikation abgeschlossen: Wehrmacht Helm
 
 📊 Suchergebnisse:
-• Plattformen: militaria321.com, egun.de
-• Seiten durchsucht: 45 (militaria321.com) + 12 (egun.de)
+• Plattformen: militaria321.com, egun.de, markt.de, kleinanzeigen.de
+• Seiten durchsucht: 45 (militaria321.com) + 12 (egun.de) + 8 (markt.de)
 • Artikel gefunden: 1,124
 
 🔄 Nachbearbeitung (Backfill):

@@ -49,7 +49,7 @@ class User(BaseModel):
 
 def _default_platforms() -> List[str]:
     """Return default platform list while honoring Kleinanzeigen toggle"""
-    default = ["militaria321.com", "egun.de"]
+    default = ["militaria321.com", "egun.de", "markt.de"]
     enable_ka = os.environ.get("ENABLE_KLEINANZEIGEN", "true").strip().lower()
     if enable_ka not in {"0", "false", "off"}:
         default.append("kleinanzeigen.de")
